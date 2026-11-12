@@ -2,7 +2,7 @@
 
 Nov 12, 2026 · @Caina · Status: ready to start
 
-> For whoever is guiding the coding agents: this document is the project's source of truth. Every backlog task (section 11) becomes one branch and one pull request. Agents must follow the rules in section 13 (AGENTS.md). Cainã reviews and approves every PR and must understand every line, because he will explain this project in technical interviews.
+> For whoever is guiding the coding agents: this document is the project's source of truth. Every backlog task (section 11) becomes one branch and one pull request. Agents must follow the rules in section 13 (AGENTS.md). PRs are merged automatically when CI is green (section 12), but Cainã reads every PR and must understand every line, because he will explain this project in technical interviews.
 
 ## 1. Overview
 
@@ -258,6 +258,7 @@ One task = one branch = one PR. "Depends on" lists what must already be on main.
 | T14 | `feat/T14-web-chat` | React chat: business picker, messages, sources and handoff notice | T13 | Full conversation in the browser |
 | T15 | `test/T15-evals` | 45-case dataset and metrics runner | T13 | Report generated; section 10 targets met or documented |
 | T16 | `docs/T16-readme-demo` | Final README: problem, architecture, how to run, GIF, eval table, decisions; tag v0.1.0 | T14, T15 | Someone new can run the project from the README alone |
+| T24 | `ci/T24-auto-merge` | Auto-merge workflow: squash-merge green PRs and delete their branch | T02 | A green, ready-for-review PR from this repo is merged without manual action; drafts and forks are not |
 
 **After the MVP:**
 
@@ -275,7 +276,7 @@ One task = one branch = one PR. "Depends on" lists what must already be on main.
 
 **Branches:**
 
-- `main` is protected: code only lands through a PR with green CI and Cainã's approval.
+- Code lands on `main` through a PR. The Auto-merge workflow (`.github/workflows/auto-merge.yml`) squash-merges a PR and deletes its branch as soon as CI is green. Draft PRs and PRs from forks are never merged automatically.
 - One short-lived branch per task, created from an up-to-date main and deleted after merge.
 - Name: `<type>/<ID>-<short-kebab-case-description>`. Examples: `feat/T07-rag-ingestion`, `fix/T24-duplicate-handoff`, `docs/T16-readme-demo`.
 - Branch types match commit types: feat, fix, docs, test, refactor, chore, ci, perf.
@@ -347,7 +348,7 @@ Everything in English: code, comments, commits, PRs, docs.
 3. Read the acceptance criteria before writing code. If anything is ambiguous, stop and ask.
 4. Make small Conventional Commits with the footer "Refs: T07".
 5. Run lint and tests before every push.
-6. Open the PR using the template. Never merge yourself: merging is done by a human.
+6. Open the PR using the template. Never merge yourself: the Auto-merge workflow squash-merges the PR and deletes its branch once CI is green. Open it as a draft if it must not be merged yet.
 
 ## Rules
 - Never commit secrets, .env files or API keys.
@@ -391,5 +392,5 @@ A task is done only when:
 - tests are written and passing, and CI is green;
 - there are no secrets in the diff;
 - docs are updated if a contract or command changed;
-- Cainã has reviewed, understood and approved the PR;
-- it was squash-merged and the branch was deleted.
+- Cainã has read and understood the PR (before or right after the automatic merge);
+- it was squash-merged and the branch was deleted (done by the Auto-merge workflow).
