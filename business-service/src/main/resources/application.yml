@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: business-service
+  # Local defaults. In docker compose they are overridden by
+  # SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME and SPRING_DATASOURCE_PASSWORD.
+  datasource:
+    url: jdbc:postgresql://localhost:5432/tendwise
+    username: tendwise
+    password: ${POSTGRES_PASSWORD:}
+  flyway:
+    # Flyway creates the core schema and keeps its history table there.
+    schemas: core
+    default-schema: core
+  jpa:
+    open-in-view: false
+    hibernate:
+      # The schema is owned by Flyway; Hibernate only checks that entities match it.
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: core
+
+server:
+  port: 8080
