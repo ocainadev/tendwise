@@ -35,7 +35,12 @@ Source of truth for the data model and API contracts. Coding agents must not add
 | `handoffs` | id, business_id, conversation_id, reason, summary, status, created_at, updated_at |
 
 - `orders.status`: `RECEIVED`, `IN_PROGRESS`, `READY`, `OUT_FOR_DELIVERY`, `COMPLETED`, `CANCELLED`.
+- `orders.fulfilment`: `DELIVERY`, `PICKUP`, `IN_STORE`.
+- `catalog_items.kind`: `PRODUCT`, `SERVICE`.
 - `handoffs.status`: `OPEN`, `IN_PROGRESS`, `RESOLVED`.
+- Enum values are stored as uppercase text with a `CHECK` constraint (mapped with `@Enumerated(EnumType.STRING)`).
+- `handoffs.conversation_id` is a `UUID` created by agent-service (no foreign key across schemas).
+- Migrations: `business-service/src/main/resources/db/migration` (`V1__schema.sql`, `V2__seed.sql`).
 
 ### Schema `agent` (owned by agent-service)
 
