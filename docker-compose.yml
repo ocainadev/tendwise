@@ -17,5 +17,18 @@ services:
       timeout: 5s
       retries: 10
 
+  business-service:
+    build: ./business-service
+    container_name: tendwise-business-service
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-tendwise}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-tendwise}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "8080:8080"
+
 volumes:
   db-data:

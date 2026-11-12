@@ -38,6 +38,18 @@ Check that pgvector is available:
 docker compose exec db psql -U tendwise -d tendwise -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
 ```
 
+Start business-service (applies the Flyway migrations and the demo seed on first start, port 8080):
+
+```bash
+docker compose up --build business-service
+```
+
+Run its tests (needs Docker for Testcontainers):
+
+```bash
+cd business-service && ./mvnw verify
+```
+
 ## Contributing
 
 See [AGENTS.md](AGENTS.md) for the workflow: one task per branch and PR, Conventional Commits, tests for all new code.
