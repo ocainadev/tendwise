@@ -13,7 +13,7 @@ Everything in English: code, comments, commits, PRs, docs.
 3. Read the acceptance criteria before writing code. If anything is ambiguous, stop and ask.
 4. Make small Conventional Commits with the footer "Refs: T07".
 5. Run lint and tests before every push.
-6. Open the PR using the template. Never merge yourself: merging is done by a human.
+6. Open the PR using the template. Never merge yourself: the Auto-merge workflow squash-merges the PR and deletes its branch once CI is green. Open it as a draft if it must not be merged yet.
 
 ## Rules
 - Never commit secrets, .env files or API keys.

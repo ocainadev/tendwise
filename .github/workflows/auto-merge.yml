@@ -1,0 +1,51 @@
+name: Auto-merge
+
+# When CI finishes green on a pull request, squash-merge it and delete its branch.
+#
+# Note: workflow_run always uses the version of this file on main, so changes
+# to it only take effect after they are merged.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    name: Merge green PR
+    # Only CI runs that were triggered by a PR and passed.
+    # Only branches of this repository: a PR from a fork is never merged automatically.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      # The code of the PR is never checked out or run here: this job only calls the GitHub API.
+      - name: Squash-merge the PR and delete its branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ "$BRANCH" = "main" ]; then
+            echo "Head branch is main. Nothing to do."
+            exit 0
+          fi
+
+          # Draft PRs are skipped: mark a PR as draft to stop it from being merged.
+          pr=$(gh pr list --head "$BRANCH" --state open --json number,isDraft \
+            --jq '.[] | select(.isDraft | not) | .number')
+          if [ -z "$pr" ]; then
+            echo "No open, ready-for-review PR for $BRANCH. Nothing to merge."
+            exit 0
+          fi
+
+          # --match-head-commit refuses the merge if a new commit was pushed after this CI run.
+          gh pr merge "$pr" --squash --match-head-commit "$SHA"
+          gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$BRANCH"
+          echo "Merged PR #$pr and deleted $BRANCH."
