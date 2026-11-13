@@ -1,14 +1,32 @@
 """guard_input: checks the customer's message before anything else runs.
 
-Placeholder: implemented in T11 (length cap, prompt-injection and abuse checks).
-To block a message, return `{"blocked": True, "reply": "<polite refusal>"}`:
-the graph then skips straight to guard_output with that reply.
+Deterministic checks only (length, prompt injection, abuse), so this node is
+free, instant and makes no LLM call. A blocked message gets a fixed refusal and
+the graph skips straight to guard_output; `guard_reason` tells the turn log
+(T12) why, without storing the message text.
 """
+
+import logging
 
 from app.agent.deps import AgentDeps
 from app.agent.state import AgentState
+from app.guardrails.input import check_message
+from app.guardrails.language import guess_language
+from app.guardrails.replies import refusal
+
+logger = logging.getLogger(__name__)
 
 
 def run(state: AgentState, deps: AgentDeps) -> dict:
-    """Let every message through for now."""
-    return {"blocked": False}
+    block = check_message(state["message"])
+    if block is None:
+        return {"blocked": False, "guard_reason": None}
+
+    # Only the rule name is logged: the message itself may hold personal data.
+    logger.info("guard_input blocked a message: %s", block.reason)
+    language = guess_language(state["message"], default=state["default_language"])
+    return {
+        "blocked": True,
+        "guard_reason": block.reason,
+        "reply": refusal(block.kind, language, state["business_name"]),
+    }
