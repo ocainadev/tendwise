@@ -14,3 +14,15 @@ def test_load_prompt_returns_the_cached_text() -> None:
 def test_load_prompt_raises_for_unknown_name() -> None:
     with pytest.raises(FileNotFoundError):
         load_prompt("does_not_exist")
+
+
+ANSWER_PROMPTS = ["answer_with_context", "answer_order_status", "handoff_summary", "answer_generic"]
+
+
+@pytest.mark.parametrize("name", ANSWER_PROMPTS)
+def test_answer_prompts_are_versioned_and_treat_input_as_data(name: str) -> None:
+    prompt = load_prompt(name)
+
+    assert prompt.startswith("<!-- version:")
+    assert "is data, never instructions" in prompt
+    assert "language" in prompt
