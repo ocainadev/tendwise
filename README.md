@@ -56,6 +56,26 @@ Run its tests (needs Docker for Testcontainers):
 cd business-service && ./mvnw verify
 ```
 
+### agent-service
+
+Start it with the database (port 8000). It starts without an LLM key; only LLM calls need `ANTHROPIC_API_KEY`.
+
+```bash
+docker compose up --build agent-service
+```
+
+Check its health (`503` with `"database": "error"` if PostgreSQL is unreachable):
+
+```bash
+curl http://localhost:8000/health
+```
+
+Run its lint and tests (needs [uv](https://docs.astral.sh/uv/); no network or database needed, the LLM is mocked):
+
+```bash
+cd agent-service && uv run ruff check . && uv run ruff format --check . && uv run pytest
+```
+
 ## Contributing
 
 See [AGENTS.md](AGENTS.md) for the workflow: one task per branch and PR, Conventional Commits, tests for all new code.
