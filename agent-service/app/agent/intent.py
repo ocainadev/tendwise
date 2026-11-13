@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from app.guardrails.normalize import normalize
 from app.llm.client import LLMClient, LLMResponse, Message
 from app.prompts import load_prompt
 
@@ -28,6 +29,17 @@ CLASSIFY_MAX_TOKENS = 200
 
 ORDER_CODE_PATTERN = re.compile(r"[A-Z]{2}-[0-9]+")
 PHONE_LAST4_PATTERN = re.compile(r"[0-9]{4}")
+# A search query longer than this is cut: it is only used to find chunks.
+MAX_SEARCH_QUERY_CHARS = 200
+# Phone digits the customer wrote after a cue word, in en/es/pt (text normalised:
+# lowercase, no accents): "last digits 0102", "ends in 0102", "final 0102",
+# "termina em 0102", "ultimos 4 digitos ... 0102". The 4 digits must stand alone:
+# not part of an order code (`JP-1042`) or of a longer number (`555-0102`).
+PHONE_CUE_PATTERN = re.compile(
+    r"\b(?:digits?|digitos?|ending|ends?|last|ultimos?|final|"
+    r"termina\w*|phone|telefone|telefono|celular)\b"
+    r"[^0-9]{0,30}?(?<![0-9-])([0-9]{4})(?![0-9-])"
+)
 # A reply wrapped in a Markdown fence: ```json ... ``` (the "json" tag is optional).
 CODE_FENCE_PATTERN = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
 
@@ -41,6 +53,10 @@ class IntentResult(BaseModel):
     language: Language
     order_code: str | None = None
     phone_last4: str | None = None
+    # For catalog questions: the question rewritten as a short search query in
+    # the business's default language (the language its documents are written
+    # in), so a Spanish question still finds Portuguese documents.
+    search_query: str | None = None
 
     @field_validator("order_code", mode="before")
     @classmethod
@@ -64,6 +80,18 @@ class IntentResult(BaseModel):
         digits = value.strip()
         return digits if PHONE_LAST4_PATTERN.fullmatch(digits) else None
 
+    @field_validator("search_query", mode="before")
+    @classmethod
+    def clean_search_query(cls, value: object) -> str | None:
+        """Keep a non-empty string, cut to MAX_SEARCH_QUERY_CHARS; anything else is None.
+
+        A bad value never fails the classification: retrieval then simply
+        searches with the customer's own message.
+        """
+        if not isinstance(value, str) or not value.strip():
+            return None
+        return value.strip()[:MAX_SEARCH_QUERY_CHARS]
+
 
 class ClassificationOutcome(BaseModel):
     """The classification plus what it cost, for routing (T10) and cost logging (T12)."""
@@ -81,6 +109,16 @@ class ClassificationOutcome(BaseModel):
     @property
     def completion_tokens(self) -> int:
         return sum(response.completion_tokens for response in self.llm_responses)
+
+
+def phone_last4_in(message: str) -> str | None:
+    """The 4 phone digits the customer gave after a cue word, or None.
+
+    A deterministic backstop for the classifier, which sometimes misses digits
+    written in the same message as the order code ("JP-1042, final 0102").
+    """
+    match = PHONE_CUE_PATTERN.search(normalize(message))
+    return match.group(1) if match else None
 
 
 def classify_intent(
