@@ -13,6 +13,13 @@ permissions:
   contents: write
   pull-requests: write
 
+# One merge at a time. Two PRs that go green together would otherwise race,
+# and the second merge fails with "Base branch was modified".
+# cancel-in-progress is false so a waiting merge is queued, not dropped.
+concurrency:
+  group: auto-merge
+  cancel-in-progress: false
+
 jobs:
   merge:
     name: Merge green PR
@@ -46,6 +53,18 @@ jobs:
           fi
 
           # --match-head-commit refuses the merge if a new commit was pushed after this CI run.
-          gh pr merge "$pr" --squash --match-head-commit "$SHA"
+          # GitHub can still answer "Base branch was modified" right after another merge
+          # (a merge made outside this workflow, for example), so try up to 3 times.
+          # A real conflict fails all 3 tries: rebase the PR and push to try again.
+          for attempt in 1 2 3; do
+            if gh pr merge "$pr" --squash --match-head-commit "$SHA"; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::Could not merge PR #$pr. Rebase it onto main and push."
+              exit 1
+            fi
+            sleep 10
+          done
           gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$BRANCH"
           echo "Merged PR #$pr and deleted $BRANCH."
