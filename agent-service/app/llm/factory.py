@@ -1,10 +1,11 @@
 """Pick the LLMClient adapter that LLM_PROVIDER asks for."""
 
-from app.core.config import Settings
+from app.core.config import PROVIDER_API_KEY_VARIABLES, Settings
 from app.llm.anthropic_client import AnthropicClient
 from app.llm.client import LLMClient
+from app.llm.openai_client import OpenAIClient
 
-SUPPORTED_PROVIDERS = ("anthropic",)
+SUPPORTED_PROVIDERS = tuple(PROVIDER_API_KEY_VARIABLES)
 
 
 class UnknownLLMProviderError(ValueError):
@@ -17,11 +18,18 @@ def create_llm_client(settings: Settings) -> LLMClient:
     This is the only place that knows the concrete adapter classes; the rest of
     the code only sees `LLMClient`.
     """
-    provider = settings.llm_provider.strip().lower()
+    provider = settings.provider()
 
     if provider == "anthropic":
         return AnthropicClient(
             api_key=settings.anthropic_api_key,
+            model=settings.llm_model,
+            default_max_tokens=settings.llm_max_tokens,
+        )
+
+    if provider == "openai":
+        return OpenAIClient(
+            api_key=settings.openai_api_key,
             model=settings.llm_model,
             default_max_tokens=settings.llm_max_tokens,
         )

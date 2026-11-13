@@ -37,13 +37,15 @@ def migrate_database() -> None:
 
 
 def llm_is_configured(settings: Settings) -> bool:
-    """False when the Anthropic provider is selected but ANTHROPIC_API_KEY is empty.
+    """False when the selected provider's API key (e.g. OPENAI_API_KEY) is empty.
 
     Without a key every LLM call would fail, so we do not build the agent at
-    all and /api/v1/chat answers a clean 503 instead.
+    all and /api/v1/chat answers a clean 503 instead. An unknown provider counts
+    as configured here: building the agent then fails with a clear error.
     """
-    is_anthropic = settings.llm_provider.strip().lower() == "anthropic"
-    return not is_anthropic or settings.anthropic_api_key is not None
+    if settings.llm_api_key_variable() is None:
+        return True
+    return settings.llm_api_key() is not None
 
 
 def build_chat_services(app: FastAPI, settings: Settings) -> None:
@@ -63,7 +65,9 @@ def build_chat_services(app: FastAPI, settings: Settings) -> None:
         logger.warning("BUSINESS_SERVICE_API_KEY is not set: /api/v1/chat will answer 503")
 
     if not llm_is_configured(settings):
-        logger.warning("ANTHROPIC_API_KEY is not set: /api/v1/chat will answer 503")
+        logger.warning(
+            "%s is not set: /api/v1/chat will answer 503", settings.llm_api_key_variable()
+        )
         return
     try:
         # Slow: loads the embedding model and connects to PostgreSQL.

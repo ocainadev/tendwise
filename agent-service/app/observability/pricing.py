@@ -6,6 +6,7 @@ use; the result is an estimate for the report, not an invoice.
 """
 
 import logging
+import re
 from decimal import Decimal
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,17 @@ PRICES_PER_MILLION_TOKENS: dict[str, tuple[Decimal, Decimal]] = {
     "claude-haiku-5-5": (Decimal("0.10"), Decimal("0.50")),
     "claude-sonnet-5-5": (Decimal("2.00"), Decimal("10.00")),
     "claude-opus-5-5": (Decimal("4.00"), Decimal("20.00")),
+    # Source: OpenAI API pricing, Standard tier, short context (up to 272K input
+    # tokens), https://developers.openai.com/api/docs/pricing, checked on
+    # 2026-11-13. Reasoning tokens are billed as output tokens.
+    "gpt-6-luna": (Decimal("0.10"), Decimal("0.50")),
+    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20")),
+    "gpt-5.4-mini": (Decimal("0.75"), Decimal("4.50")),
 }
+
+# OpenAI may answer with a dated snapshot id, e.g. "gpt-5.4-mini-2026-03-17";
+# it costs the same as its alias "gpt-5.4-mini".
+SNAPSHOT_DATE_SUFFIX = re.compile(r"-\d{4}-\d{2}-\d{2}$")
 
 ONE_MILLION = Decimal(1_000_000)
 
@@ -29,6 +40,8 @@ _warned_models: set[str] = set()
 def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> Decimal:
     """Cost in USD of one call; 0 for a model missing from the table (and one warning)."""
     prices = PRICES_PER_MILLION_TOKENS.get(model)
+    if prices is None:
+        prices = PRICES_PER_MILLION_TOKENS.get(SNAPSHOT_DATE_SUFFIX.sub("", model))
     if prices is None:
         if model not in _warned_models:
             _warned_models.add(model)

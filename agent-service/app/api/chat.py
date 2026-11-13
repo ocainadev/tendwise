@@ -16,7 +16,6 @@ import logging
 from typing import Annotated
 from uuid import UUID, uuid4
 
-import anthropic
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -26,6 +25,7 @@ from app.agent.service import AgentService
 from app.agent.state import Source
 from app.api.rate_limit import SlidingWindowRateLimiter
 from app.gateways.business_gateway import BusinessGateway
+from app.llm.errors import LLM_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ def chat(
         # A tool (order status, handoff) could not reach business-service.
         log_error("Business service call failed", error, conversation_id)
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, BUSINESS_UNAVAILABLE) from None
-    except anthropic.AnthropicError as error:
+    except LLM_ERRORS as error:
         # The LLM provider failed: network, wrong key, overload, rate limit, ...
         log_error("LLM call failed", error, conversation_id)
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, ASSISTANT_UNAVAILABLE) from None

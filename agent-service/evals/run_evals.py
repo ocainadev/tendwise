@@ -4,7 +4,8 @@ Run from agent-service/, with the stack up (docker compose up) and the data inge
     uv run python evals/run_evals.py --env-file ../.env
     uv run python evals/run_evals.py --env-file ../.env --model claude-sonnet-5-5
 
-It needs ANTHROPIC_API_KEY, BUSINESS_SERVICE_API_KEY and DATABASE_URL (see the
+It needs the selected provider's key (ANTHROPIC_API_KEY or OPENAI_API_KEY, see
+LLM_PROVIDER), BUSINESS_SERVICE_API_KEY and DATABASE_URL (see the
 "Evals" section of agent-service/README.md). Every case is a new conversation
 with the real AgentService: real LLM, pgvector retrieval, business-service
 tools and Postgres memory, so the run also writes turns and handoffs to the
@@ -28,12 +29,12 @@ from uuid import uuid4
 # path, so add agent-service/ to be able to import `app` and `evals`.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import anthropic  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
 from app.agent.service import AgentService  # noqa: E402
 from app.core.config import Settings  # noqa: E402
 from app.gateways.business_gateway import BusinessInfo  # noqa: E402
+from app.llm.errors import LLM_AUTH_ERRORS  # noqa: E402
 from evals.dataset import DATASET_PATH, EvalCase, load_dataset  # noqa: E402
 from evals.report import format_console_summary, format_report  # noqa: E402
 from evals.scoring import CaseOutcome, CaseScore, outcome_from_turn, score_case, summarize  # noqa: E402
@@ -50,7 +51,8 @@ EXIT_ALL_CASES_FAILED = 1
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--model", help="LLM model to evaluate (default: LLM_MODEL, i.e. claude-haiku-5-5)"
+        "--model",
+        help="LLM model to evaluate (default: LLM_MODEL, else the provider's default model)",
     )
     parser.add_argument(
         "--env-file",
@@ -82,8 +84,11 @@ def load_env_file(path: Path) -> None:
 def missing_configuration(settings: Settings) -> list[str]:
     """The variables the eval needs that are not set (DATABASE_URL is checked by Settings)."""
     missing = []
-    if settings.anthropic_api_key is None or not settings.anthropic_api_key.get_secret_value():
-        missing.append("ANTHROPIC_API_KEY")
+    key_variable = settings.llm_api_key_variable()
+    key = settings.llm_api_key()
+    # An unknown LLM_PROVIDER has no key to check: building the agent fails clearly.
+    if key_variable is not None and (key is None or not key.get_secret_value()):
+        missing.append(key_variable)
     if settings.business_service_api_key is None:
         missing.append("BUSINESS_SERVICE_API_KEY")
     return missing
@@ -121,7 +126,7 @@ def run_case(service: AgentService, business: BusinessInfo | None, case: EvalCas
     started = time.monotonic()
     try:
         result = service.handle_turn(uuid4(), business, case.input)
-    except anthropic.AuthenticationError:
+    except LLM_AUTH_ERRORS:
         # A rejected key is a broken setup, not a failed case: stop the whole run.
         raise
     except Exception as error:  # noqa: BLE001 - one broken case must not stop the run
@@ -168,8 +173,11 @@ def main(argv: list[str] | None = None) -> int:
     gateway = HttpBusinessGateway.from_settings(settings)
     try:
         scores = run_cases(service, gateway.get_business, cases)
-    except anthropic.AuthenticationError:
-        print("Cannot run the evals: the LLM provider rejected ANTHROPIC_API_KEY.", file=sys.stderr)
+    except LLM_AUTH_ERRORS:
+        print(
+            f"Cannot run the evals: the LLM provider rejected {settings.llm_api_key_variable()}.",
+            file=sys.stderr,
+        )
         return EXIT_CONFIG_ERROR
     summary = summarize(scores)
 

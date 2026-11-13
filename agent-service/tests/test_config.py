@@ -101,3 +101,52 @@ def test_retrieval_settings_have_defaults_and_bounds(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("RAG_MIN_SIMILARITY", "1.5")  # a similarity is at most 1
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_openai_provider_defaults_to_an_openai_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db:5432/tendwise")
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "")  # empty, as in a freshly copied .env
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    settings = Settings()
+
+    assert settings.llm_model == "gpt-6-luna"
+    assert settings.llm_api_key_variable() == "OPENAI_API_KEY"
+    assert settings.llm_api_key() is not None
+    assert settings.llm_api_key().get_secret_value() == "sk-test"
+
+
+def test_llm_model_overrides_the_provider_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db:5432/tendwise")
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_MODEL", "gpt-5.4-mini")
+
+    assert Settings().llm_model == "gpt-5.4-mini"
+
+
+def test_llm_api_key_is_the_selected_providers_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db:5432/tendwise")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+
+    anthropic_settings = Settings()
+    openai_settings = Settings(llm_provider=" OpenAI ")
+
+    assert anthropic_settings.llm_api_key_variable() == "ANTHROPIC_API_KEY"
+    assert anthropic_settings.llm_api_key() is not None
+    # The Anthropic key does not count for OpenAI.
+    assert openai_settings.llm_api_key_variable() == "OPENAI_API_KEY"
+    assert openai_settings.llm_api_key() is None
+
+
+def test_unknown_provider_has_no_key_variable_and_no_default_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db:5432/tendwise")
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+
+    settings = Settings()
+
+    assert settings.llm_api_key_variable() is None
+    assert settings.llm_api_key() is None
+    assert settings.llm_model == ""

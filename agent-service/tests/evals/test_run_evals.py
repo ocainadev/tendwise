@@ -5,6 +5,8 @@ from pathlib import Path
 
 import anthropic
 import httpx
+import httpx2
+import openai
 import pytest
 
 from evals.dataset import load_dataset
@@ -78,6 +80,20 @@ def test_a_rejected_api_key_stops_the_run() -> None:
         run_cases(service, lambda slug: BUSINESS, [CASES["catalog-01"]])
 
 
+class RejectedOpenAIKeyLLM:
+    def complete(self, system: str, messages: list, max_tokens: int | None = None) -> None:
+        request = httpx2.Request("POST", "https://api.openai.com/v1/responses")
+        raise openai.AuthenticationError(
+            "invalid api key", response=httpx2.Response(401, request=request), body=None
+        )
+
+
+def test_a_rejected_openai_key_stops_the_run() -> None:
+    service = make_service(RejectedOpenAIKeyLLM())
+    with pytest.raises(openai.AuthenticationError):
+        run_cases(service, lambda slug: BUSINESS, [CASES["catalog-01"]])
+
+
 def test_an_unknown_business_is_an_error_for_that_case() -> None:
     scores = run_cases(make_service(FakeLLM([])), lambda slug: None, [CASES["catalog-01"]])
     assert scores[0].outcome.error == "unknown business 'joes-pizza'"
@@ -105,6 +121,18 @@ def test_missing_api_key_fails_fast_with_a_clear_message(
 
     assert main([]) == EXIT_CONFIG_ERROR
     assert "ANTHROPIC_API_KEY is not set" in capsys.readouterr().err
+
+
+def test_missing_openai_key_is_named_when_openai_is_selected(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test@localhost/test")
+    monkeypatch.setenv("BUSINESS_SERVICE_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")  # not the selected provider's key
+
+    assert main([]) == EXIT_CONFIG_ERROR
+    assert "OPENAI_API_KEY is not set" in capsys.readouterr().err
 
 
 def test_missing_database_url_fails_fast(capsys: pytest.CaptureFixture[str]) -> None:
