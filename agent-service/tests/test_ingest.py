@@ -68,7 +68,10 @@ def test_migrations_create_the_tables_once(database_url: str) -> None:
         rows = connection.execute(
             "SELECT filename FROM agent.schema_migrations ORDER BY filename"
         ).fetchall()
-        assert [row[0] for row in rows] == ["001_documents_chunks.sql"]
+        assert [row[0] for row in rows] == [
+            "001_documents_chunks.sql",
+            "002_conversations_turns.sql",
+        ]
 
 
 def test_migrations_create_an_hnsw_index(conn: psycopg.Connection) -> None:
