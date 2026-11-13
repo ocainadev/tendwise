@@ -1,7 +1,7 @@
 """The LLMClient interface (a "port"): what the agent needs from any LLM provider.
 
-The agent depends only on this interface. Each provider (Anthropic today,
-OpenAI or Gemini later) is an adapter that implements it, so we can swap
+The agent depends only on this interface. Each provider (Anthropic and OpenAI
+today, Gemini later) is an adapter that implements it, so we can swap
 providers in `.env` and use a fake LLM in tests.
 """
 

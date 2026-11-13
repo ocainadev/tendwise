@@ -10,6 +10,7 @@ dependencies = [
     "httpx>=0.28.1",
     "langgraph>=1.2.21",
     "langgraph-checkpoint-postgres>=3.2.0",
+    "openai>=3.50.0",
     "pgvector>=0.5.1",
     "psycopg[binary]>=3.3.9",
     "pydantic-settings>=2.16.2",

@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import anthropic
 import httpx
+import openai
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -231,6 +232,31 @@ def test_llm_error_returns_503_without_leaking_the_error(
         assert "555-0102" not in text
 
 
+class FailingOpenAI:
+    """The OpenAI provider is down."""
+
+    def complete(
+        self, system: str, messages: list[Message], max_tokens: int | None = None
+    ) -> LLMResponse:
+        raise openai.APIConnectionError(
+            message="cannot reach api.openai.com with sk-proj-secret", request=None
+        )
+
+
+def test_openai_error_returns_503_without_leaking_the_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = make_client(make_service(FailingOpenAI()), FakeGateway())  # type: ignore[arg-type]
+
+    response = post(client)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Assistant temporarily unavailable"}
+    assert "APIConnectionError" in caplog.text
+    for text in (caplog.text, response.text):
+        assert "sk-proj-secret" not in text
+
+
 def test_no_agent_service_returns_503() -> None:
     client = make_client(None, FakeGateway())
 
@@ -300,6 +326,42 @@ def test_startup_without_llm_key_skips_the_agent_service(
 
     assert app.state.agent_service is None
     assert app.state.gateway is None
+
+
+def test_startup_with_openai_builds_the_agent_service_with_only_its_key(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = make_service(FakeLLM([]))
+    monkeypatch.setattr(main, "create_agent_service", lambda s: service)
+    app = FastAPI()
+    openai_settings = settings.model_copy(
+        update={
+            "llm_provider": "openai",
+            "openai_api_key": SecretStr("test-openai-key"),
+            "business_service_api_key": SecretStr("test-business-key"),
+        }
+    )
+
+    main.build_chat_services(app, openai_settings)
+
+    assert app.state.agent_service is service
+
+
+def test_startup_with_openai_but_no_openai_key_names_that_key(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def must_not_be_called(s: Settings) -> AgentService:
+        raise AssertionError("the agent must not be built without a key")
+
+    monkeypatch.setattr(main, "create_agent_service", must_not_be_called)
+    app = FastAPI()
+    # Only the Anthropic key is set: it does not count for OpenAI.
+    openai_settings = configured(settings).model_copy(update={"llm_provider": "openai"})
+
+    main.build_chat_services(app, openai_settings)
+
+    assert app.state.agent_service is None
+    assert "OPENAI_API_KEY is not set" in caplog.text
 
 
 @pytest.fixture

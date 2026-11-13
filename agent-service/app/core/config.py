@@ -7,8 +7,20 @@ pick up a developer's real keys by accident.
 
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Per LLM provider: the model used when LLM_MODEL is empty (a small, fast,
+# low-cost one; prices in app/observability/pricing.py) ...
+PROVIDER_DEFAULT_MODELS = {
+    "anthropic": "claude-haiku-5-5",
+    "openai": "gpt-6-luna",
+}
+# ... and the variable that holds its API key.
+PROVIDER_API_KEY_VARIABLES = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+}
 
 
 class Settings(BaseSettings):
@@ -30,10 +42,13 @@ class Settings(BaseSettings):
 
     # LLM
     llm_provider: str = "anthropic"
-    llm_model: str = "claude-haiku-5-5"
+    # Empty means the provider's default (PROVIDER_DEFAULT_MODELS), filled in below.
+    llm_model: str = ""
     llm_max_tokens: int = 512
     # Optional so the service starts without a key; only an LLM call fails.
+    # Only the key of the selected provider is needed.
     anthropic_api_key: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
 
     # business-service (used by the tools in later tasks)
     business_service_url: str = "http://business-service:8080"
@@ -69,6 +84,26 @@ class Settings(BaseSettings):
     # messages per conversation in any CHAT_RATE_LIMIT_WINDOW_SECONDS window.
     chat_rate_limit_messages: int = Field(default=20, ge=1)
     chat_rate_limit_window_seconds: float = Field(default=600.0, gt=0)
+
+    @model_validator(mode="after")
+    def use_provider_default_model(self) -> "Settings":
+        """Without LLM_MODEL, use the selected provider's default model."""
+        if not self.llm_model:
+            self.llm_model = PROVIDER_DEFAULT_MODELS.get(self.provider(), "")
+        return self
+
+    def provider(self) -> str:
+        """LLM_PROVIDER, normalized: " OpenAI " -> "openai"."""
+        return self.llm_provider.strip().lower()
+
+    def llm_api_key_variable(self) -> str | None:
+        """The variable that holds the selected provider's key; None for an unknown provider."""
+        return PROVIDER_API_KEY_VARIABLES.get(self.provider())
+
+    def llm_api_key(self) -> SecretStr | None:
+        """The selected provider's API key, or None when it is not set."""
+        keys = {"anthropic": self.anthropic_api_key, "openai": self.openai_api_key}
+        return keys.get(self.provider())
 
 
 @lru_cache
