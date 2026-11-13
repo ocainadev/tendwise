@@ -90,7 +90,8 @@ guard_input ─┬─ blocked ────────────────�
                                       guard_output → remember_turn → log_turn → END
 ```
 
-- **guard_input / guard_output / log_turn:** placeholders, filled in by T11 (guardrails) and T12 (turn logging). If guard_input sets `blocked`, the graph skips straight to guard_output with the reply guard_input set.
+- **guard_input / guard_output:** deterministic checks before and after the agent, see [Guardrails](#guardrails). If guard_input sets `blocked`, the graph skips straight to guard_output with the fixed refusal guard_input set.
+- **log_turn:** placeholder, filled in by T12 (turn logging).
 - **classify_intent:** the T09 classifier; also updates `negative_streak` and remembers any order code or phone digits the customer gave.
 - **route:** deterministic code, checked in this order: confidence < 0.6 → handoff `LOW_CONFIDENCE`; `human_request` → `HUMAN_REQUEST`; `complaint` → `COMPLAINT`; negative sentiment on 2 consecutive turns → `NEGATIVE_SENTIMENT`; otherwise `catalog_question` → retrieve, `order_status` → ask_or_call_tool, `other` → answer_generic.
 - **retrieve → answer_with_context:** top-k chunks of the business; the LLM answers only from them and the reply lists their sources. No chunks → a fixed "I don't have that information, want a person?" reply, without an LLM call.
@@ -102,8 +103,35 @@ guard_input ─┬─ blocked ────────────────�
 
 ### Memory
 
-- State that **persists across turns** of a conversation: `history`, `negative_streak`, `pending_order_code`, `pending_phone_last4` (the last two are cleared once `get_order_status` has been called). Every other field (`intent`, `chunks`, `reply`, `sources`, `handoff`, `blocked`, `tool_calls`, `llm_usage`, ...) is reset at the start of each turn.
+- State that **persists across turns** of a conversation: `history`, `negative_streak`, `pending_order_code`, `pending_phone_last4` (the last two are cleared once `get_order_status` has been called). Every other field (`intent`, `chunks`, `reply`, `sources`, `handoff`, `blocked`, `guard_reason`, `tool_calls`, `llm_usage`, ...) is reset at the start of each turn.
 - LangGraph saves a checkpoint after each node, keyed by `thread_id = conversation_id`. Production uses `PostgresSaver` (`langgraph-checkpoint-postgres`) on a connection with `search_path=agent`, so its tables `agent.checkpoints`, `agent.checkpoint_blobs`, `agent.checkpoint_writes` and `agent.checkpoint_migrations` live in the `agent` schema; they are created and upgraded by the library's `setup()` at startup (not by our SQL migrations). Tests use the in-memory saver.
+
+### Guardrails
+
+`app/guardrails/` holds plain Python checks (regexes and short word lists, no LLM call), used by the two guard nodes. They are free, instant and fully unit-tested; anything subtler is left to the system prompts, which keep the model in the business's scope.
+
+**guard_input** (`app/guardrails/input.py`, checked in this order, first hit wins):
+
+| Check | Rule | `guard_reason` |
+|---|---|---|
+| Empty | nothing left after trimming | `length:empty` |
+| Length | more than 1,000 characters after trimming | `length:too_long` |
+| Prompt injection | patterns in `injection.py`, en/es/pt | `injection:<rule>` |
+| Abuse | short list of insults in `abuse.py`, en/es/pt | `abuse` |
+
+- Injection rules: `ignore_previous` ("ignore all previous instructions"), `disregard_rules` ("disregard your rules", "olvida tus reglas", "esqueça suas regras"), `role_change` ("you are now…", "act as a…", "finja que você é…"), `system_prompt`, `reveal_prompt` ("show me your instructions", "mostre seu prompt"), `developer_mode`, `jailbreak` (including an all-caps "DAN"), `role_tag` (`<system>`, `[INST]`, `<<SYS>>`, `<|im_start|>`, a `### system` line).
+- The message is normalised first (lowercase, accents and invisible characters removed), so "INSTRUÇÕES" and "instrucoes" hit the same pattern. Patterns are narrow on purpose: "ignore the mushrooms on my pizza" or "what's your system for deliveries?" pass.
+- The abuse list holds insults aimed at someone ("fuck you", "eres un idiota", "vai se foder"), not every swear word: an angry complaint must reach a person through the handoff route, not be blocked.
+- A blocked message gets a fixed refusal from `app/guardrails/replies.py` ("please send a shorter message", "I can only help with questions about <business>", "let's keep it respectful"). It never reached the classifier, so the reply language is guessed by `language.py` from common en/es/pt words, falling back to the business's `default_language`.
+- `guard_reason` is stored in the state (per turn) for the turn log; only the rule name is ever logged, never the message.
+
+**guard_output** (`app/guardrails/output.py`, runs on every reply, blocked ones too):
+
+- Phone numbers (7 or more digits, with spaces, dots, dashes, parentheses or a leading `+`) become `****` + the last 4 digits (`****0102`), the same `mask_phone_last4` format used for stored tool calls. Prices (`$14.00`, `R$ 199,90`), times (`11:00–22:00`), ISO dates, order codes (`JP-1042`) and short numbers are left alone.
+- E-mail addresses become `****@domain`.
+- Replies over 1,200 characters are cut at the last full sentence and end with " …".
+- This masks the business's own phone and e-mail too, if the model copies them from a document: the spec puts no phone number in a reply, and a person can share contacts after a handoff.
+- Customer names never reach the agent: business-service's order status response has no customer data (`code`, `status`, `fulfilment`, `eta`, `updated_at`), and a test fails if a field is added.
 
 ### BusinessGateway
 

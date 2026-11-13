@@ -67,6 +67,9 @@ class AgentState(TypedDict):
     sources: list[Source]
     handoff: bool
     blocked: bool  # set by guard_input (T11): skip straight to guard_output
+    # Why guard_input blocked the message, for the turn log (T12): "length:empty",
+    # "length:too_long", "injection:<rule>" or "abuse". None when it passed.
+    guard_reason: str | None
     # One dict per tool call: {"name", "args" (phone masked), "outcome"}.
     tool_calls: list[dict]
     # Every LLM call of this turn, for cost logging (T12).
@@ -100,6 +103,7 @@ def new_turn_input(
         "sources": [],
         "handoff": False,
         "blocked": False,
+        "guard_reason": None,
         "tool_calls": [],
         "llm_usage": [],
     }
