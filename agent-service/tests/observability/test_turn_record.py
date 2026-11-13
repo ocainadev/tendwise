@@ -86,6 +86,16 @@ def test_blocked_turn_has_no_intent_no_model_and_the_business_language() -> None
     assert (record.prompt_tokens, record.completion_tokens, record.cost_usd) == (0, 0, 0)
 
 
+def test_blocked_turn_logs_the_language_guard_input_guessed() -> None:
+    state = finished_state(
+        intent=None, llm_usage=[], blocked=True, blocked_language="pt", reply="Não."
+    )
+
+    record = log_turn.build_turn_record(state, now=state["started_at"])
+
+    assert record.language == "pt"
+
+
 def test_handoff_flag_is_copied() -> None:
     record = log_turn.build_turn_record(finished_state(handoff=True), now=0.0)
 

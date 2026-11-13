@@ -372,6 +372,7 @@ def started_app(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Iterator
         raise ConnectionRefusedError("db-host:5432")
 
     monkeypatch.setattr(main, "migrate_database", lambda: None)
+    monkeypatch.setattr(main, "ingest_documents", lambda s: None)
     monkeypatch.setattr(main, "create_agent_service", database_down)
     monkeypatch.setattr(main, "get_settings", lambda: configured(settings))
     monkeypatch.setattr(main.HttpBusinessGateway, "from_settings", lambda s: FakeGateway())

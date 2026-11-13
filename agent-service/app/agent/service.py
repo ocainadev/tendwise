@@ -14,7 +14,7 @@ from app.agent.checkpointer import create_postgres_checkpointer
 from app.agent.deps import AgentDeps
 from app.agent.graph import build_graph
 from app.agent.intent import Intent, Language
-from app.agent.state import Source, empty_memory, new_turn_input
+from app.agent.state import Source, empty_memory, new_turn_input, turn_language
 from app.core.config import Settings
 from app.core.db import connection_factory
 from app.gateways.business_gateway import BusinessInfo, HttpBusinessGateway
@@ -72,7 +72,7 @@ class AgentService:
         return TurnResult(
             reply=state["reply"],
             intent=intent.intent if intent else None,
-            language=intent.language if intent else business.default_language,
+            language=turn_language(state),
             sources=state["sources"],
             handoff=state["handoff"],
             tool_calls=state["tool_calls"],

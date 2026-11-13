@@ -70,7 +70,9 @@ Check its health (`503` with `"database": "error"` if PostgreSQL is unreachable)
 curl http://localhost:8000/health
 ```
 
-Index the business content (`data/businesses/<slug>/*.md`) into pgvector. Safe to run again: unchanged files are skipped, so no duplicate chunks. The first run downloads the embedding model (about 220 MB, into the `embedding-models` volume; locally into `agent-service/.cache/fastembed`):
+agent-service indexes the business content (`data/businesses/<slug>/*.md`) into pgvector by itself every time it starts, so after `docker compose up` catalog questions work with no extra step. Unchanged files are skipped, so a restart creates no duplicate chunks. The first start downloads the embedding model (about 220 MB, into the `embedding-models` volume; locally into `agent-service/.cache/fastembed`), so it takes a minute longer. If startup ingestion fails (for example the database is not ready), the service still starts and logs `Startup ingestion failed: <error type>`.
+
+To re-index by hand after editing the `.md` files:
 
 ```bash
 docker compose exec agent-service python scripts/ingest.py
