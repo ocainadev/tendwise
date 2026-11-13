@@ -81,3 +81,23 @@ def test_rag_settings_have_defaults_and_read_the_environment(
     assert configured.embedding_dimensions == 768
     assert configured.embedding_cache_dir == "/models"
     assert configured.data_dir == "/app/data"
+
+
+def test_retrieval_settings_have_defaults_and_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db:5432/tendwise")
+    monkeypatch.setenv("RAG_MIN_SIMILARITY", "")  # empty -> default
+
+    defaults = Settings()
+
+    assert defaults.rag_top_k == 5
+    assert defaults.rag_min_similarity == 0.30
+
+    monkeypatch.setenv("RAG_TOP_K", "3")
+    monkeypatch.setenv("RAG_MIN_SIMILARITY", "0.5")
+    configured = Settings()
+    assert configured.rag_top_k == 3
+    assert configured.rag_min_similarity == 0.5
+
+    monkeypatch.setenv("RAG_MIN_SIMILARITY", "1.5")  # a similarity is at most 1
+    with pytest.raises(ValidationError):
+        Settings()
