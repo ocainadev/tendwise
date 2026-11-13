@@ -28,5 +28,6 @@ def run(state: AgentState, deps: AgentDeps) -> dict:
     return {
         "blocked": True,
         "guard_reason": block.reason,
+        "blocked_language": language,
         "reply": refusal(block.kind, language, state["business_name"]),
     }

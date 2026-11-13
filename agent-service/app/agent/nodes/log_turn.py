@@ -12,7 +12,7 @@ from uuid import UUID
 
 from app.agent.deps import AgentDeps
 from app.agent.privacy import mask_phone_numbers
-from app.agent.state import AgentState
+from app.agent.state import AgentState, turn_language
 from app.observability.pricing import estimate_cost
 from app.observability.turn_log import TurnRecord
 
@@ -29,7 +29,7 @@ def build_turn_record(state: AgentState, now: float) -> TurnRecord:
     return TurnRecord(
         conversation_id=UUID(state["conversation_id"]),
         business_id=state["business_slug"],
-        language=intent.language if intent else state["default_language"],
+        language=turn_language(state),
         # Defence in depth: guard_output (T11) also masks them in the reply.
         content=mask_phone_numbers(state["reply"]),
         intent=intent.intent if intent else None,

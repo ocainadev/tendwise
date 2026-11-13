@@ -67,6 +67,9 @@ class AgentState(TypedDict):
     sources: list[Source]
     handoff: bool
     blocked: bool  # set by guard_input (T11): skip straight to guard_output
+    # The reply language guard_input guessed for a blocked message (it never
+    # reaches the classifier). None when the message passed.
+    blocked_language: Language | None
     # Why guard_input blocked the message, for the turn log (T12): "length:empty",
     # "length:too_long", "injection:<rule>" or "abuse". None when it passed.
     guard_reason: str | None
@@ -104,9 +107,17 @@ def new_turn_input(
         "handoff": False,
         "blocked": False,
         "guard_reason": None,
+        "blocked_language": None,
         "tool_calls": [],
         "llm_usage": [],
     }
+
+
+def turn_language(state: AgentState) -> Language:
+    """The language of this turn's reply: classified, guessed for a blocked message, or default."""
+    if state["intent"] is not None:
+        return state["intent"].language
+    return state.get("blocked_language") or state["default_language"]
 
 
 def empty_memory() -> dict:
