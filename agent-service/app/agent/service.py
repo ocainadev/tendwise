@@ -16,9 +16,11 @@ from app.agent.graph import build_graph
 from app.agent.intent import Intent, Language
 from app.agent.state import Source, empty_memory, new_turn_input
 from app.core.config import Settings
+from app.core.db import connection_factory
 from app.gateways.business_gateway import BusinessInfo, HttpBusinessGateway
 from app.llm.client import LLMResponse
 from app.llm.factory import create_llm_client
+from app.observability.turn_log import PostgresTurnLogger
 from app.rag.retriever import create_retriever
 
 
@@ -80,6 +82,9 @@ def create_agent_service(settings: Settings) -> AgentService:
         retriever=create_retriever(settings),
         gateway=HttpBusinessGateway.from_settings(settings),
         top_k=settings.rag_top_k,
+        turn_logger=PostgresTurnLogger(
+            connection_factory(settings.database_url.get_secret_value())
+        ),
     )
     checkpointer = create_postgres_checkpointer(settings.database_url.get_secret_value())
     return AgentService(build_graph(deps, checkpointer))
