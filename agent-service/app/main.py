@@ -14,6 +14,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import CONNECT_TIMEOUT_SECONDS
 from app.core.migrations import apply_migrations
 from app.gateways.business_gateway import HttpBusinessGateway
+from app.rag.ingest import run_ingestion
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,29 @@ def migrate_database() -> None:
         return
     if applied:
         logger.info("Applied migrations: %s", ", ".join(applied))
+
+
+def ingest_documents(settings: Settings) -> None:
+    """Index `data/businesses` so a fresh `docker compose up` can answer catalog questions.
+
+    Safe to run on every start: unchanged files are skipped (content hash) and
+    an advisory lock stops two ingestions from running at once. If it fails
+    (database down, folder missing, ...) we only log it: the service still
+    starts, and `scripts/ingest.py` or POST /api/v1/admin/ingest can retry.
+    """
+    try:
+        summary = run_ingestion(settings)
+    except Exception as error:  # broad on purpose: whatever fails, the app must still start
+        # Log only the error type: the message can contain the host or user name.
+        logger.warning("Startup ingestion failed: %s", type(error).__name__)
+        return
+    logger.info(
+        "Startup ingestion: added=%d updated=%d skipped=%d deleted=%d",
+        summary.added,
+        summary.updated,
+        summary.skipped,
+        summary.deleted,
+    )
 
 
 def llm_is_configured(settings: Settings) -> bool:
@@ -81,7 +105,9 @@ def build_chat_services(app: FastAPI, settings: Settings) -> None:
 async def startup(app: FastAPI) -> AsyncIterator[None]:
     """FastAPI "lifespan": code before `yield` runs once when the server starts."""
     migrate_database()
-    build_chat_services(app, get_settings())
+    settings = get_settings()
+    ingest_documents(settings)
+    build_chat_services(app, settings)
     yield
 
 
