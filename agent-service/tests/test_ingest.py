@@ -1,27 +1,21 @@
 """Ingestion and migrations against a real PostgreSQL + pgvector (needs Docker).
 
-testcontainers starts the same image as docker compose once for this module.
+The `database_url`, `conn` and `businesses_dir` fixtures live in conftest.py.
 The embedder is a fake, so no model is downloaded.
 """
 
 import hashlib
 import shutil
-from collections.abc import Iterator
 from pathlib import Path
 
 import psycopg
 import pytest
-from pgvector.psycopg import register_vector
-from testcontainers.community.postgres import PostgresContainer
 
 from app.core.config import Settings
 from app.core.migrations import apply_migrations
 from app.rag import ingest
 from app.rag.ingest import IngestSummary, ingest_all, run_ingestion
-
-PGVECTOR_IMAGE = "pgvector/pgvector:0.8.0-pg16"
-DIMENSIONS = 384
-REPO_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+from tests.rag_helpers import DIMENSIONS
 
 
 class FakeEmbedder:
@@ -39,31 +33,6 @@ class FakeEmbedder:
             first_byte = hashlib.sha256(text.encode()).digest()[0]
             vectors.append([1.0, first_byte / 255] + [0.0] * (DIMENSIONS - 2))
         return vectors
-
-
-@pytest.fixture(scope="module")
-def database_url() -> Iterator[str]:
-    with PostgresContainer(PGVECTOR_IMAGE, driver=None) as postgres:
-        yield postgres.get_connection_url()
-
-
-@pytest.fixture
-def conn(database_url: str) -> Iterator[psycopg.Connection]:
-    """A connection to a migrated, empty `agent` schema."""
-    with psycopg.connect(database_url) as connection:
-        apply_migrations(connection)
-        register_vector(connection)
-        connection.execute("TRUNCATE agent.documents, agent.chunks")
-        connection.commit()
-        yield connection
-
-
-@pytest.fixture
-def businesses_dir(tmp_path: Path) -> Path:
-    """A copy of the real data/businesses folder that tests may edit."""
-    copy = tmp_path / "businesses"
-    shutil.copytree(REPO_DATA_DIR / "businesses", copy)
-    return copy
 
 
 def count_chunks(conn: psycopg.Connection, business_id: str | None = None) -> int:

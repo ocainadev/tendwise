@@ -7,7 +7,7 @@ pick up a developer's real keys by accident.
 
 from functools import lru_cache
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     embedding_cache_dir: str = ".cache/fastembed"
     # Folder that holds `businesses/<slug>/*.md` (the repo's data/ folder).
     data_dir: str = "../data"
+
+    # Retrieval (T08): how many chunks the agent gets per question, and the
+    # lowest cosine similarity a chunk needs to count as relevant. Chunks under
+    # the threshold are dropped, so an off-topic question gets no context at all.
+    # 0.30 was measured with the real model; see "Retrieval" in docs/architecture.md.
+    rag_top_k: int = Field(default=5, ge=1)
+    rag_min_similarity: float = Field(default=0.30, ge=0.0, le=1.0)
 
 
 @lru_cache

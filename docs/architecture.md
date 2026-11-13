@@ -64,6 +64,14 @@ Source of truth for the data model and API contracts. Coding agents must not add
 - Indexes: HNSW on `embedding vector_cosine_ops` (approximate nearest neighbours by cosine distance, `<=>`), and a B-tree on `chunks.business_id`.
 - Ingestion (`app/rag/ingest.py`) runs in one transaction behind an advisory lock: unchanged hash → skipped; changed hash → the document's chunks are deleted and re-inserted; file removed → document deleted (chunks cascade).
 
+#### Retrieval
+
+- `app/rag/retriever.py`: the agent depends on the `Retriever` interface (`retrieve(business_slug, query, top_k=5) -> list[RetrievedChunk]`); `PgVectorRetriever` is the adapter. Each `RetrievedChunk` has `content`, `source_path`, `title`, `section` and `similarity`.
+- **Business filter:** one SQL query, always `WHERE c.business_id = <slug>`, joined with `documents` on both `id` and `business_id`. A question for one business can never return another business's chunks.
+- **Top-k:** `ORDER BY embedding <=> query LIMIT top_k` (`RAG_TOP_K`, default 5). `similarity = 1 - cosine distance`; results come back best first. `SET LOCAL hnsw.iterative_scan = relaxed_order` keeps a filtered HNSW scan from returning fewer than `top_k` rows when the index is used.
+- **Threshold:** chunks with similarity below `RAG_MIN_SIMILARITY` (default **0.30**) are dropped after the query (a `WHERE` on the distance would stop PostgreSQL from using the index). An off-topic question returns `[]`, and the agent answers that it does not know instead of guessing.
+- **Calibration (T08), with the real model:** 30 on-topic questions (12 per business in its language, 3 in another language) all have their best chunk at ≥ 0.347 (median ≈ 0.53). Of 16 off-topic questions, 12 have their best chunk below 0.30 (e.g. "Who won the world cup?" 0.153 / 0.073). The few above it (weather 0.37–0.41, "ignore your instructions" 0.32–0.33) only reach harmless chunks such as opening hours; the intent classifier and input guard stop those first anyway. Between 0.28 and 0.30, 13 of 14 chunks were noise. Re-check the threshold whenever the model or the content changes.
+
 #### Migrations
 
 Plain SQL files in `agent-service/migrations/` (`001_documents_chunks.sql`, ...), applied in file-name order by `app/core/migrations.py` on app startup and at the start of every ingestion. Applied files are recorded in `agent.schema_migrations`.
