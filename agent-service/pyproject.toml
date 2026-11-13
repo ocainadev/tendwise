@@ -32,3 +32,7 @@ select = ["E", "F", "I", "UP", "B"]
 testpaths = ["tests"]
 # Lets tests import the `app` package without installing it.
 pythonpath = ["."]
+# Slow tests (e.g. the real embedding model, a ~220 MB download) are skipped by
+# default. Run them with: uv run pytest -m slow
+addopts = "-m 'not slow'"
+markers = ["slow: needs the real embedding model; run with -m slow"]
