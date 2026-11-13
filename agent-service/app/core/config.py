@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     rag_top_k: int = Field(default=5, ge=1)
     rag_min_similarity: float = Field(default=0.30, ge=0.0, le=1.0)
 
+    # Retention (T12, spec section 9): `scripts/report.py --purge` deletes
+    # conversations older than this, with their turns and their agent memory.
+    conversation_retention_days: int = Field(default=90, ge=1)
+
 
 @lru_cache
 def get_settings() -> Settings:
