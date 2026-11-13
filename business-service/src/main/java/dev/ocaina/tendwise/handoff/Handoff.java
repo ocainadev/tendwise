@@ -1,6 +1,5 @@
 package dev.ocaina.tendwise.handoff;
 
-import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -9,6 +8,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 /** A conversation the agent passed to a human. Created and updated through the API (T05). */
@@ -25,8 +25,8 @@ public class Handoff {
   /** Id of the conversation in agent-service. */
   private UUID conversationId;
 
-  /** Why the agent handed off, e.g. complaint, human_request, low_confidence. */
-  private String reason;
+  @Enumerated(EnumType.STRING)
+  private HandoffReason reason;
 
   /** Short LLM-written summary of the conversation for the staff member. */
   private String summary;
@@ -34,14 +34,37 @@ public class Handoff {
   @Enumerated(EnumType.STRING)
   private HandoffStatus status;
 
-  /** Set by the database default. */
-  @Column(insertable = false, updatable = false)
   private Instant createdAt;
 
   private Instant updatedAt;
 
   /** Required by JPA. */
   protected Handoff() {}
+
+  /** A new handoff always starts OPEN. */
+  public Handoff(Long businessId, UUID conversationId, HandoffReason reason, String summary) {
+    this.businessId = businessId;
+    this.conversationId = conversationId;
+    this.reason = reason;
+    this.summary = summary;
+    this.status = HandoffStatus.OPEN;
+    this.createdAt = now();
+    this.updatedAt = this.createdAt;
+  }
+
+  /** Any change is allowed (no state machine in the MVP). Also refreshes updatedAt. */
+  public void changeStatus(HandoffStatus newStatus) {
+    this.status = newStatus;
+    this.updatedAt = now();
+  }
+
+  /**
+   * PostgreSQL stores microseconds. Truncating here means the value in the create response is the
+   * same one a later read returns from the database.
+   */
+  private static Instant now() {
+    return Instant.now().truncatedTo(ChronoUnit.MICROS);
+  }
 
   public Long getId() {
     return id;
@@ -55,7 +78,7 @@ public class Handoff {
     return conversationId;
   }
 
-  public String getReason() {
+  public HandoffReason getReason() {
     return reason;
   }
 
