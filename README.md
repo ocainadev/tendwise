@@ -90,6 +90,30 @@ Run its lint and tests (needs [uv](https://docs.astral.sh/uv/) and Docker: inges
 cd agent-service && uv run ruff check . && uv run ruff format --check . && uv run pytest
 ```
 
+### web
+
+The chat UI talks to agent-service through a relative `/api` URL (Vite's dev proxy or nginx forwards it, so no CORS). Pick a demo business (Joe's Pizza or Denim Corner) and ask away.
+
+With agent-service running on port 8000 (needs Node 24):
+
+```bash
+cd web && npm install && npm run dev
+```
+
+Or everything in Docker (nginx serves the built app and proxies `/api` to agent-service):
+
+```bash
+docker compose up --build web
+```
+
+Either way, open http://localhost:5173.
+
+Run its lint and tests (`fetch` is mocked, no backend needed):
+
+```bash
+cd web && npm run lint && npm test
+```
+
 ## Contributing
 
 See [AGENTS.md](AGENTS.md) for the workflow: one task per branch and PR, Conventional Commits, tests for all new code.

@@ -65,6 +65,14 @@ services:
       timeout: 5s
       retries: 5
 
+  web:
+    build: ./web
+    container_name: tendwise-web
+    depends_on:
+      - agent-service
+    ports:
+      - "5173:80"
+
 volumes:
   db-data:
   embedding-models:
