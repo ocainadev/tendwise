@@ -100,6 +100,16 @@ Run its lint and tests (needs [uv](https://docs.astral.sh/uv/) and Docker: inges
 cd agent-service && uv run ruff check . && uv run ruff format --check . && uv run pytest
 ```
 
+#### Evals
+
+`agent-service/evals/dataset.jsonl` holds 45 customer messages (catalog, order status, complaints and human requests, prompt injection and off-topic, and the same questions in en/es/pt), each with the expected intent, tool and facts. `evals/run_evals.py` sends every case, as a new conversation, through the real agent (real LLM, retrieval, business-service and Postgres) and measures intent accuracy, tool-selection accuracy, groundedness, reply-language accuracy, injection-blocked rate, average latency and cost. It needs the stack running (`docker compose up`), the content ingested and `ANTHROPIC_API_KEY` set. From `agent-service/`, point it at the database and business-service on localhost and read the rest from the root `.env`:
+
+```bash
+DATABASE_URL=postgresql://tendwise:<password>@localhost:5432/tendwise BUSINESS_SERVICE_URL=http://localhost:8080 uv run python evals/run_evals.py --env-file ../.env
+```
+
+Add `--model claude-sonnet-5-5` to evaluate another model, and `--limit 5` for a quick smoke run. Each run writes `evals/results/<model>-<date>.md` (metrics vs the MVP targets, plus every failed case) and prints a summary. It exits non-zero only when it cannot run (for example a missing key), not when a target is missed. The run writes its turns and handoffs to the database like real customers would, so use a development database. The first run outside Docker downloads the embedding model (about 220 MB) into `agent-service/.cache/fastembed`.
+
 ### web
 
 The chat UI talks to agent-service through a relative `/api` URL (Vite's dev proxy or nginx forwards it, so no CORS). Pick a demo business (Joe's Pizza or Denim Corner) and ask away.
