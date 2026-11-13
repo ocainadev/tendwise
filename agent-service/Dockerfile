@@ -18,8 +18,15 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --locked --no-dev
 
 COPY app ./app
+COPY migrations ./migrations
+COPY scripts ./scripts
 
-RUN useradd --create-home --uid 10001 appuser
+# The embedding model is downloaded into .cache/fastembed on first use (about
+# 220 MB). Compose mounts a named volume there, so it is downloaded only once;
+# the folder must exist and belong to appuser so the volume gets that owner.
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /app/.cache/fastembed \
+    && chown -R appuser /app/.cache
 USER appuser
 
 ENV PATH="/app/.venv/bin:$PATH"

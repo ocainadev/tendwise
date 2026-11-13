@@ -4,6 +4,7 @@
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.cache/
 tests/
 .env
 .env.*

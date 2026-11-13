@@ -22,6 +22,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+# fastembed model downloads (agent-service/.cache/fastembed)
+.cache/
 *.egg-info/
 .coverage
 htmlcov/

@@ -48,8 +48,16 @@ services:
       BUSINESS_SERVICE_URL: ${BUSINESS_SERVICE_URL:-}
       BUSINESS_SERVICE_API_KEY: ${BUSINESS_SERVICE_API_KEY:-}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-}
+      DATA_DIR: /app/data
     ports:
       - "8000:8000"
+    volumes:
+      # The business .md files to ingest (read-only).
+      - ./data:/app/data:ro
+      # Downloaded embedding model, kept between restarts and rebuilds.
+      - embedding-models:/app/.cache/fastembed
     # The slim image has no curl, so the check uses Python's standard library.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
@@ -59,3 +67,4 @@ services:
 
 volumes:
   db-data:
+  embedding-models:
