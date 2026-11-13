@@ -18,6 +18,8 @@ from app.rag.ingest import run_ingestion  # noqa: E402
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # The first run downloads the model; hide one log line per HTTP request.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     summary = run_ingestion(get_settings())
     print(
         f"Ingestion done: added={summary.added} updated={summary.updated} "
