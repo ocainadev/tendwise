@@ -44,6 +44,12 @@ Start business-service (applies the Flyway migrations and the demo seed on first
 docker compose up --build business-service
 ```
 
+Look up a demo order (`BUSINESS_SERVICE_API_KEY` from your `.env`). API docs: http://localhost:8080/swagger-ui
+
+```bash
+curl -H "X-Api-Key: $BUSINESS_SERVICE_API_KEY" "http://localhost:8080/api/v1/orders/JP-1042/status?businessSlug=joes-pizza&phoneLast4=0102"
+```
+
 Run its tests (needs Docker for Testcontainers):
 
 ```bash

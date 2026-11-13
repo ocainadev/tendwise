@@ -19,6 +19,19 @@ spring:
     properties:
       hibernate:
         default_schema: core
+  mvc:
+    # Framework errors (400 on a bad parameter, 405...) are returned as RFC 7807 Problem Details.
+    problemdetails:
+      enabled: true
 
 server:
   port: 8080
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui
+
+tendwise:
+  # Shared key that callers (agent-service) send in the X-Api-Key header.
+  # Required: the service does not start without it.
+  api-key: ${BUSINESS_SERVICE_API_KEY:}

@@ -64,12 +64,15 @@ Prefix `/api/v1`. Every call requires the `X-Api-Key` header.
 |---|---|---|
 | GET | `/businesses/{slug}` | Business info (hours, category, language) |
 | GET | `/businesses/{slug}/catalog` | Catalog items |
-| GET | `/orders/{code}/status?phoneLast4=1234` | Status and ETA. Returns 404 if the code does not exist or the phone does not match, without telling the two apart |
+| GET | `/orders/{code}/status?businessSlug=joes-pizza&phoneLast4=1234` | Status, fulfilment and ETA (no customer data). Returns 404 if the business or code does not exist, the order belongs to another business, or the phone does not match, without telling the cases apart. 400 if `phoneLast4` is not 4 digits |
 | POST | `/handoffs` | Create handoff: `businessSlug`, `conversationId`, `reason`, `summary` |
 | GET | `/handoffs?status=OPEN` | List handoffs by status |
 | PATCH | `/handoffs/{id}` | Update status |
 
-Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagger-ui`.
+Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagger-ui` (public; use "Authorize" to send the key).
+
+- Missing or wrong `X-Api-Key` on `/api/**` → 401. The key comes from `BUSINESS_SERVICE_API_KEY`; the service does not start without it.
+- `businessSlug` on the order status route keeps tenant isolation: the agent can only read orders of the business it is talking for.
 
 ### agent-service
 
