@@ -76,6 +76,39 @@ Source of truth for the data model and API contracts. Coding agents must not add
 
 Plain SQL files in `agent-service/migrations/` (`001_documents_chunks.sql`, ...), applied in file-name order by `app/core/migrations.py` on app startup and at the start of every ingestion. Applied files are recorded in `agent.schema_migrations`.
 
+## Agent graph
+
+`agent-service/app/agent/graph.py` wires one node per file in `app/agent/nodes/` (each a plain function `run(state, deps) -> partial state`). `AgentService.handle_turn(conversation_id, business, message)` in `app/agent/service.py` runs it once per customer message.
+
+```
+guard_input ─┬─ blocked ───────────────────────────────────────────────┐
+             └─ classify_intent → route ─┬─ retrieve → answer_with_context ─┤
+                                         ├─ ask_or_call_tool ───────────────┤
+                                         ├─ create_handoff ─────────────────┤
+                                         └─ answer_generic ─────────────────┤
+                                                                            ▼
+                                      guard_output → remember_turn → log_turn → END
+```
+
+- **guard_input / guard_output / log_turn:** placeholders, filled in by T11 (guardrails) and T12 (turn logging). If guard_input sets `blocked`, the graph skips straight to guard_output with the reply guard_input set.
+- **classify_intent:** the T09 classifier; also updates `negative_streak` and remembers any order code or phone digits the customer gave.
+- **route:** deterministic code, checked in this order: confidence < 0.6 → handoff `LOW_CONFIDENCE`; `human_request` → `HUMAN_REQUEST`; `complaint` → `COMPLAINT`; negative sentiment on 2 consecutive turns → `NEGATIVE_SENTIMENT`; otherwise `catalog_question` → retrieve, `order_status` → ask_or_call_tool, `other` → answer_generic.
+- **retrieve → answer_with_context:** top-k chunks of the business; the LLM answers only from them and the reply lists their sources. No chunks → a fixed "I don't have that information, want a person?" reply, without an LLM call.
+- **ask_or_call_tool:** asks (fixed text) for whatever is missing of order code and last 4 phone digits; with both, calls `get_order_status` through `BusinessGateway`. Not found → a fixed "could not find an order with that code and phone" reply; found → the LLM phrases the status from the tool data.
+- **create_handoff:** the LLM writes a staff-facing summary (max 2,000 characters, in the business's default language), the gateway calls `POST /handoffs`, and the customer gets a fixed "a person will continue" reply.
+- **answer_generic:** greetings and anything else; stays in the business's scope and declines off-topic requests.
+- **remember_turn:** appends the message and the final reply to `history` (last 40 messages). Blocked messages are not remembered.
+- Replies are in the classified language (`en`, `es`, `pt`). Prompts live in `app/prompts/*.md`; fixed replies in `app/agent/replies.py`. Tool calls are recorded in the state with the phone masked (`****1234`).
+
+### Memory
+
+- State that **persists across turns** of a conversation: `history`, `negative_streak`, `pending_order_code`, `pending_phone_last4` (the last two are cleared once `get_order_status` has been called). Every other field (`intent`, `chunks`, `reply`, `sources`, `handoff`, `blocked`, `tool_calls`, `llm_usage`, ...) is reset at the start of each turn.
+- LangGraph saves a checkpoint after each node, keyed by `thread_id = conversation_id`. Production uses `PostgresSaver` (`langgraph-checkpoint-postgres`) on a connection with `search_path=agent`, so its tables `agent.checkpoints`, `agent.checkpoint_blobs`, `agent.checkpoint_writes` and `agent.checkpoint_migrations` live in the `agent` schema; they are created and upgraded by the library's `setup()` at startup (not by our SQL migrations). Tests use the in-memory saver.
+
+### BusinessGateway
+
+`app/gateways/business_gateway.py`: the `BusinessGateway` interface (`get_business`, `get_order_status`, `create_handoff`) and `HttpBusinessGateway`, which calls business-service with `X-Api-Key` and a 5-second timeout, maps its camelCase JSON to snake_case models and returns `None` on 404. httpx request logging is limited to warnings, because the order status URL carries `phoneLast4`.
+
 ## API contracts
 
 ### business-service
