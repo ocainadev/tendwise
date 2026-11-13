@@ -20,6 +20,7 @@
   <properties>
     <java.version>21</java.version>
     <spotless.version>3.11.0</spotless.version>
+    <springdoc.version>2.10.0</springdoc.version>
   </properties>
 
   <dependencies>
@@ -30,6 +31,17 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <!-- Bean Validation (@Pattern, @NotBlank...) on request parameters and bodies. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <!-- OpenAPI docs and Swagger UI at /swagger-ui (spec section 8). -->
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+      <version>${springdoc.version}</version>
     </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
