@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     # conversations older than this, with their turns and their agent memory.
     conversation_retention_days: int = Field(default=90, ge=1)
 
+    # Chat rate limit (T13, cost control): at most CHAT_RATE_LIMIT_MESSAGES
+    # messages per conversation in any CHAT_RATE_LIMIT_WINDOW_SECONDS window.
+    chat_rate_limit_messages: int = Field(default=20, ge=1)
+    chat_rate_limit_window_seconds: float = Field(default=600.0, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:
