@@ -58,7 +58,7 @@ cd business-service && ./mvnw verify
 
 ### agent-service
 
-Start it with the database (port 8000). It starts without an LLM key; only LLM calls need `ANTHROPIC_API_KEY`.
+Start it with the database (port 8000). It starts without an LLM key; only LLM calls need the key of the provider set in `LLM_PROVIDER`: `ANTHROPIC_API_KEY` (default, `anthropic`) or `OPENAI_API_KEY` (`LLM_PROVIDER=openai`, default model `gpt-6-luna`).
 
 ```bash
 docker compose up --build agent-service
@@ -86,13 +86,13 @@ Outside Docker, from `agent-service/` with `DATABASE_URL` set: `uv run python sc
 
 #### Chat
 
-With business-service running, the content ingested and `ANTHROPIC_API_KEY` set in `.env`, send a message. Leave out `conversation_id` (or send `null`) to start a conversation; send back the returned `conversation_id` to continue it:
+With business-service running, the content ingested and the LLM key set in `.env` (`ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` with `LLM_PROVIDER=openai`), send a message. Leave out `conversation_id` (or send `null`) to start a conversation; send back the returned `conversation_id` to continue it:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/chat -H "Content-Type: application/json" -d '{"business_slug": "joes-pizza", "message": "How much is delivery?"}'
 ```
 
-The reply has `conversation_id`, `reply`, `intent` (`null` if the guardrails blocked the message, which is still a normal `200` reply), `language`, `sources` and `handoff`. Errors: `404` unknown business, `409` conversation of another business, `422` invalid body (e.g. a message over 4,000 characters), `429` too many messages in one conversation (`CHAT_RATE_LIMIT_MESSAGES` per `CHAT_RATE_LIMIT_WINDOW_SECONDS`, 20 per 10 minutes by default), `503` business-service or the LLM unavailable (also when `ANTHROPIC_API_KEY` is not set). To chat in the browser, start the web app (below) and open http://localhost:5173.
+The reply has `conversation_id`, `reply`, `intent` (`null` if the guardrails blocked the message, which is still a normal `200` reply), `language`, `sources` and `handoff`. Errors: `404` unknown business, `409` conversation of another business, `422` invalid body (e.g. a message over 4,000 characters), `429` too many messages in one conversation (`CHAT_RATE_LIMIT_MESSAGES` per `CHAT_RATE_LIMIT_WINDOW_SECONDS`, 20 per 10 minutes by default), `503` business-service or the LLM unavailable (also when the selected provider's API key is not set). To chat in the browser, start the web app (below) and open http://localhost:5173.
 
 Run its lint and tests (needs [uv](https://docs.astral.sh/uv/) and Docker: ingestion tests start a pgvector container with Testcontainers; the LLM and the embedding model are mocked):
 
@@ -102,7 +102,7 @@ cd agent-service && uv run ruff check . && uv run ruff format --check . && uv ru
 
 #### Evals
 
-`agent-service/evals/dataset.jsonl` holds 45 customer messages (catalog, order status, complaints and human requests, prompt injection and off-topic, and the same questions in en/es/pt), each with the expected intent, tool and facts. `evals/run_evals.py` sends every case, as a new conversation, through the real agent (real LLM, retrieval, business-service and Postgres) and measures intent accuracy, tool-selection accuracy, groundedness, reply-language accuracy, injection-blocked rate, average latency and cost. It needs the stack running (`docker compose up`), the content ingested and `ANTHROPIC_API_KEY` set. From `agent-service/`, point it at the database and business-service on localhost and read the rest from the root `.env`:
+`agent-service/evals/dataset.jsonl` holds 45 customer messages (catalog, order status, complaints and human requests, prompt injection and off-topic, and the same questions in en/es/pt), each with the expected intent, tool and facts. `evals/run_evals.py` sends every case, as a new conversation, through the real agent (real LLM, retrieval, business-service and Postgres) and measures intent accuracy, tool-selection accuracy, groundedness, reply-language accuracy, injection-blocked rate, average latency and cost. It needs the stack running (`docker compose up`), the content ingested and the selected provider's API key set (`ANTHROPIC_API_KEY`, or `OPENAI_API_KEY` with `LLM_PROVIDER=openai`). From `agent-service/`, point it at the database and business-service on localhost and read the rest from the root `.env`:
 
 ```bash
 DATABASE_URL=postgresql://tendwise:<password>@localhost:5432/tendwise BUSINESS_SERVICE_URL=http://localhost:8080 uv run python evals/run_evals.py --env-file ../.env

@@ -260,6 +260,7 @@ One task = one branch = one PR. "Depends on" lists what must already be on main.
 | T15 | `test/T15-evals` | 45-case dataset and metrics runner | T13 | Report generated; section 10 targets met or documented |
 | T16 | `docs/T16-readme-demo` | Final README: problem, architecture, how to run, GIF, eval table, decisions; tag v0.1.0 | T14, T15 | Someone new can run the project from the README alone |
 | T24 | `ci/T24-auto-merge` | Auto-merge workflow: squash-merge green PRs and delete their branch | T02 | A green, ready-for-review PR from this repo is merged without manual action; drafts and forks are not |
+| T26 | `feat/T26-openai-adapter` | OpenAI LLM adapter | T06 | With `LLM_PROVIDER=openai` and `OPENAI_API_KEY` the agent works with no other change; adapter tested with a mocked SDK |
 
 **After the MVP:**
 
