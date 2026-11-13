@@ -84,6 +84,16 @@ curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" http://localhost:8000/api/v1/admin
 
 Outside Docker, from `agent-service/` with `DATABASE_URL` set: `uv run python scripts/ingest.py`.
 
+#### Chat
+
+With business-service running, the content ingested and `ANTHROPIC_API_KEY` set in `.env`, send a message. Leave out `conversation_id` (or send `null`) to start a conversation; send back the returned `conversation_id` to continue it:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/chat -H "Content-Type: application/json" -d '{"business_slug": "joes-pizza", "message": "How much is delivery?"}'
+```
+
+The reply has `conversation_id`, `reply`, `intent` (`null` if the guardrails blocked the message, which is still a normal `200` reply), `language`, `sources` and `handoff`. Errors: `404` unknown business, `409` conversation of another business, `422` invalid body (e.g. a message over 4,000 characters), `429` too many messages in one conversation (`CHAT_RATE_LIMIT_MESSAGES` per `CHAT_RATE_LIMIT_WINDOW_SECONDS`, 20 per 10 minutes by default), `503` business-service or the LLM unavailable (also when `ANTHROPIC_API_KEY` is not set). To chat in the browser, start the web app (below) and open http://localhost:5173.
+
 Run its lint and tests (needs [uv](https://docs.astral.sh/uv/) and Docker: ingestion tests start a pgvector container with Testcontainers; the LLM and the embedding model are mocked):
 
 ```bash

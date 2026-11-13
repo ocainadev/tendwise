@@ -40,6 +40,15 @@ class AgentService:
     def __init__(self, graph: CompiledStateGraph) -> None:
         self._graph = graph
 
+    def conversation_business(self, conversation_id: UUID) -> str | None:
+        """The slug of the business this conversation belongs to, or None if it is new.
+
+        The chat API uses it for tenant isolation: a conversation started with
+        one business must never be continued with another.
+        """
+        config = {"configurable": {"thread_id": str(conversation_id)}}
+        return self._graph.get_state(config).values.get("business_slug")
+
     def handle_turn(
         self, conversation_id: UUID, business: BusinessInfo, message: str
     ) -> TurnResult:
