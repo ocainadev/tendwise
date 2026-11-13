@@ -39,8 +39,20 @@ class Settings(BaseSettings):
     business_service_url: str = "http://business-service:8080"
     business_service_api_key: SecretStr | None = None
 
-    # Key required by POST /api/v1/admin/ingest (T07)
+    # Key required by POST /api/v1/admin/ingest (T07). Without it the endpoint
+    # answers 503, so ingestion over HTTP is off unless you set a key.
     admin_api_key: SecretStr | None = None
+
+    # RAG (T07). The model runs locally (fastembed, ONNX), so it needs no API
+    # key. It is multilingual because content and questions are in en/es/pt.
+    # EMBEDDING_DIMENSIONS must match the vector(N) column in migrations/.
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    embedding_dimensions: int = 384
+    # Where the model files are downloaded on first use (relative to the
+    # working directory: agent-service/ locally, /app in Docker).
+    embedding_cache_dir: str = ".cache/fastembed"
+    # Folder that holds `businesses/<slug>/*.md` (the repo's data/ folder).
+    data_dir: str = "../data"
 
 
 @lru_cache

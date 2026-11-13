@@ -55,3 +55,29 @@ def test_secrets_are_hidden_when_printed(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert "db-password" not in printed
     assert "sk-test-secret" not in printed
+
+
+def test_rag_settings_have_defaults_and_read_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@db:5432/tendwise")
+    monkeypatch.setenv("EMBEDDING_DIMENSIONS", "")  # empty -> default
+
+    defaults = Settings()
+
+    assert defaults.embedding_model == "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    assert defaults.embedding_dimensions == 384
+    assert defaults.embedding_cache_dir == ".cache/fastembed"
+    assert defaults.data_dir == "../data"
+
+    monkeypatch.setenv("EMBEDDING_MODEL", "other-model")
+    monkeypatch.setenv("EMBEDDING_DIMENSIONS", "768")
+    monkeypatch.setenv("EMBEDDING_CACHE_DIR", "/models")
+    monkeypatch.setenv("DATA_DIR", "/app/data")
+
+    configured = Settings()
+
+    assert configured.embedding_model == "other-model"
+    assert configured.embedding_dimensions == 768
+    assert configured.embedding_cache_dir == "/models"
+    assert configured.data_dir == "/app/data"

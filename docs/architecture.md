@@ -55,6 +55,19 @@ Source of truth for the data model and API contracts. Coding agents must not add
 - `N` depends on the embedding model; set in config (`EMBEDDING_DIMENSIONS`) and in the migration.
 - `content_hash` makes ingestion idempotent: unchanged documents are not reprocessed.
 
+#### RAG tables (`documents`, `chunks`)
+
+- `business_id` is the business **slug** (`TEXT`, e.g. `joes-pizza`), not `core.businesses.id`. agent-service never reads the `core` schema (it only calls the business-service API), and every chat request carries the slug. The slug is the folder name in `data/businesses/<slug>/`.
+- `documents`: one row per `.md` file. `source_path` is `<slug>/<file>.md`, unique per `(business_id, source_path)`; `title` is the file's first `# ` heading; `content_hash` is the sha256 of the file.
+- `chunks`: `document_id` references `documents(id)` `ON DELETE CASCADE`; `business_id` is repeated so searches filter by it without a join; `metadata` holds the heading path, e.g. `{"section": "Joe's Pizza – Frequently asked questions > Delivery > Fees"}`.
+- `embedding` is `vector(384)`: the multilingual model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, run locally with fastembed (ONNX, no API key). Changing the model means changing `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` and the column (new migration), then re-ingesting.
+- Indexes: HNSW on `embedding vector_cosine_ops` (approximate nearest neighbours by cosine distance, `<=>`), and a B-tree on `chunks.business_id`.
+- Ingestion (`app/rag/ingest.py`) runs in one transaction behind an advisory lock: unchanged hash → skipped; changed hash → the document's chunks are deleted and re-inserted; file removed → document deleted (chunks cascade).
+
+#### Migrations
+
+Plain SQL files in `agent-service/migrations/` (`001_documents_chunks.sql`, ...), applied in file-name order by `app/core/migrations.py` on app startup and at the start of every ingestion. Applied files are recorded in `agent.schema_migrations`.
+
 ## API contracts
 
 ### business-service
@@ -83,3 +96,5 @@ Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagge
 | POST | `/api/v1/chat` | In: `conversation_id` (optional), `business_slug`, `message`. Out: `conversation_id`, `reply`, `intent`, `language`, `sources[]`, `handoff` (bool) |
 | GET | `/health` | Service and database health |
 | POST | `/api/v1/admin/ingest` | Re-index `data/businesses` (admin key required) |
+
+- `POST /api/v1/admin/ingest` requires the `X-Admin-Key` header (compared in constant time with `ADMIN_API_KEY`): 401 if it is missing or wrong, 503 if `ADMIN_API_KEY` is not configured. 200 body: `{"added", "updated", "skipped", "deleted"}` (document counts).
