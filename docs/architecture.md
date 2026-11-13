@@ -38,6 +38,7 @@ Source of truth for the data model and API contracts. Coding agents must not add
 - `orders.fulfilment`: `DELIVERY`, `PICKUP`, `IN_STORE`.
 - `catalog_items.kind`: `PRODUCT`, `SERVICE`.
 - `handoffs.status`: `OPEN`, `IN_PROGRESS`, `RESOLVED`.
+- `handoffs.reason`: `COMPLAINT`, `HUMAN_REQUEST`, `NEGATIVE_SENTIMENT`, `LOW_CONFIDENCE` (validated by the API; no `CHECK` constraint yet).
 - Enum values are stored as uppercase text with a `CHECK` constraint (mapped with `@Enumerated(EnumType.STRING)`).
 - `handoffs.conversation_id` is a `UUID` created by agent-service (no foreign key across schemas).
 - Migrations: `business-service/src/main/resources/db/migration` (`V1__schema.sql`, `V2__seed.sql`).
@@ -65,14 +66,15 @@ Prefix `/api/v1`. Every call requires the `X-Api-Key` header.
 | GET | `/businesses/{slug}` | Business info (hours, category, language) |
 | GET | `/businesses/{slug}/catalog` | Catalog items |
 | GET | `/orders/{code}/status?businessSlug=joes-pizza&phoneLast4=1234` | Status, fulfilment and ETA (no customer data). Returns 404 if the business or code does not exist, the order belongs to another business, or the phone does not match, without telling the cases apart. 400 if `phoneLast4` is not 4 digits |
-| POST | `/handoffs` | Create handoff: `businessSlug`, `conversationId`, `reason`, `summary` |
-| GET | `/handoffs?status=OPEN` | List handoffs by status |
-| PATCH | `/handoffs/{id}` | Update status |
+| POST | `/handoffs` | Create handoff. Body: `businessSlug`, `conversationId` (UUID), `reason` (`COMPLAINT`, `HUMAN_REQUEST`, `NEGATIVE_SENTIMENT`, `LOW_CONFIDENCE`), `summary` (max 2000 chars). 201 with `Location: /api/v1/handoffs/{id}` and the handoff, status `OPEN`. 404 if the business does not exist, 400 if the body is invalid |
+| GET | `/handoffs?businessSlug=joes-pizza&status=OPEN` | Handoffs of the business, oldest first. `status` is optional (absent = all). 404 if the business does not exist, 400 on an unknown status |
+| PATCH | `/handoffs/{id}?businessSlug=joes-pizza` | Update status. Body: `status` (any of `OPEN`, `IN_PROGRESS`, `RESOLVED`; no state machine in the MVP). 200 with the handoff. 404 if the id does not exist or belongs to another business, without telling the cases apart |
 
 Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagger-ui` (public; use "Authorize" to send the key).
 
 - Missing or wrong `X-Api-Key` on `/api/**` → 401. The key comes from `BUSINESS_SERVICE_API_KEY`; the service does not start without it.
-- `businessSlug` on the order status route keeps tenant isolation: the agent can only read orders of the business it is talking for.
+- `businessSlug` on the order status and handoff routes keeps tenant isolation: the agent can only read and change data of the business it is talking for.
+- Handoff responses: `id`, `conversationId`, `reason`, `summary`, `status`, `createdAt`, `updatedAt`.
 
 ### agent-service
 
