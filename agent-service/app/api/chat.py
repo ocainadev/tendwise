@@ -31,8 +31,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1")
 
-# Hard cap against abuse. The polite limit (a reply asking for a shorter
-# message) is lower and lives in the guard_input node.
+# Hard cap against abuse (422 above it). Shorter problems, such as an empty
+# message or one over 1,000 characters, are not errors: guard_input (T11)
+# answers them with a polite fixed reply, as a normal 200.
 MAX_MESSAGE_LENGTH = 4000
 
 BUSINESS_NOT_FOUND = "Business not found"
@@ -46,7 +47,7 @@ class ChatRequest(BaseModel):
     # None (or absent) starts a new conversation.
     conversation_id: UUID | None = None
     business_slug: str = Field(pattern=r"^[a-z0-9]+(-[a-z0-9]+)*$", max_length=64)
-    message: str = Field(min_length=1, max_length=MAX_MESSAGE_LENGTH)
+    message: str = Field(max_length=MAX_MESSAGE_LENGTH)
 
 
 class ChatResponse(BaseModel):

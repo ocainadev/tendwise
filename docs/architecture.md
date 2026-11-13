@@ -196,7 +196,7 @@ Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagge
 
 | Method | Route | Description |
 |---|---|---|
-| POST | `/api/v1/chat` | In: `conversation_id` (optional UUID; absent or `null` starts a conversation), `business_slug`, `message` (1–4,000 chars). Out: `conversation_id`, `reply`, `intent` (`null` when guard_input blocked the message), `language`, `sources[]` (`title`, `source_path`, `section`), `handoff` (bool). 404 unknown business, 409 conversation of another business, 422 invalid body, 429 rate limit, 503 business-service or LLM unavailable |
+| POST | `/api/v1/chat` | In: `conversation_id` (optional UUID; absent or `null` starts a conversation), `business_slug`, `message` (max 4,000 chars; an empty message or one over 1,000 gets guard_input's polite reply with 200). Out: `conversation_id`, `reply`, `intent` (`null` when guard_input blocked the message), `language`, `sources[]` (`title`, `source_path`, `section`), `handoff` (bool). 404 unknown business, 409 conversation of another business, 422 invalid body, 429 rate limit, 503 business-service or LLM unavailable |
 | GET | `/health` | Service and database health |
 | POST | `/api/v1/admin/ingest` | Re-index `data/businesses` (admin key required) |
 
