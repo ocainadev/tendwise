@@ -196,8 +196,10 @@ Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagge
 
 | Method | Route | Description |
 |---|---|---|
-| POST | `/api/v1/chat` | In: `conversation_id` (optional), `business_slug`, `message`. Out: `conversation_id`, `reply`, `intent`, `language`, `sources[]`, `handoff` (bool) |
+| POST | `/api/v1/chat` | In: `conversation_id` (optional UUID; absent or `null` starts a conversation), `business_slug`, `message` (1–4,000 chars). Out: `conversation_id`, `reply`, `intent` (`null` when guard_input blocked the message), `language`, `sources[]` (`title`, `source_path`, `section`), `handoff` (bool). 404 unknown business, 409 conversation of another business, 422 invalid body, 429 rate limit, 503 business-service or LLM unavailable |
 | GET | `/health` | Service and database health |
 | POST | `/api/v1/admin/ingest` | Re-index `data/businesses` (admin key required) |
+
+- `POST /api/v1/chat` errors are JSON `{"detail": "..."}` and never contain exception text: `404` `Business not found`; `409` `Conversation belongs to another business` (tenant isolation: the business slug stored in the conversation's checkpoint must match the request); `429` when a conversation sends more than `CHAT_RATE_LIMIT_MESSAGES` (20) messages in `CHAT_RATE_LIMIT_WINDOW_SECONDS` (600) — an in-memory sliding window per process, to move to a shared store such as Redis when there is more than one process; `503` `Business service unavailable` (unreachable, 5xx, or `BUSINESS_SERVICE_API_KEY` unset) or `Assistant temporarily unavailable` (LLM provider error, `ANTHROPIC_API_KEY` unset, or the agent could not be built at startup). The agent service is built once at startup; if that fails, the app still starts and `/health` still works.
 
 - `POST /api/v1/admin/ingest` requires the `X-Admin-Key` header (compared in constant time with `ADMIN_API_KEY`): 401 if it is missing or wrong, 503 if `ADMIN_API_KEY` is not configured. 200 body: `{"added", "updated", "skipped", "deleted"}` (document counts).
