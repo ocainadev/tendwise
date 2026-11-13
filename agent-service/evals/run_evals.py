@@ -28,6 +28,7 @@ from uuid import uuid4
 # path, so add agent-service/ to be able to import `app` and `evals`.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import anthropic  # noqa: E402
 from pydantic import ValidationError  # noqa: E402
 
 from app.agent.service import AgentService  # noqa: E402
@@ -41,7 +42,7 @@ RESULTS_DIR = Path(__file__).parent / "results"
 # Error messages are cut in the report: the type and the start are enough.
 MAX_ERROR_CHARS = 120
 
-# Exit codes: the run could not start (configuration) / it ran but every case failed.
+# Exit codes: the setup is broken (missing or rejected key) / it ran but every case failed.
 EXIT_CONFIG_ERROR = 2
 EXIT_ALL_CASES_FAILED = 1
 
@@ -120,6 +121,9 @@ def run_case(service: AgentService, business: BusinessInfo | None, case: EvalCas
     started = time.monotonic()
     try:
         result = service.handle_turn(uuid4(), business, case.input)
+    except anthropic.AuthenticationError:
+        # A rejected key is a broken setup, not a failed case: stop the whole run.
+        raise
     except Exception as error:  # noqa: BLE001 - one broken case must not stop the run
         message = f"{type(error).__name__}: {error}"[:MAX_ERROR_CHARS]
         return CaseOutcome(error=message, latency_seconds=time.monotonic() - started)
@@ -162,7 +166,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Running {len(cases)} cases with {settings.llm_model}...", flush=True)
     service = create_agent_service(settings)
     gateway = HttpBusinessGateway.from_settings(settings)
-    scores = run_cases(service, gateway.get_business, cases)
+    try:
+        scores = run_cases(service, gateway.get_business, cases)
+    except anthropic.AuthenticationError:
+        print("Cannot run the evals: the LLM provider rejected ANTHROPIC_API_KEY.", file=sys.stderr)
+        return EXIT_CONFIG_ERROR
     summary = summarize(scores)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)

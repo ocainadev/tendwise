@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+import anthropic
+import httpx
 import pytest
 
 from evals.dataset import load_dataset
@@ -60,6 +62,20 @@ def test_an_error_in_one_case_does_not_stop_the_run() -> None:
 
     assert scores[0].outcome.error.startswith("IndexError")
     assert scores[1].failed_checks == []
+
+
+class RejectedKeyLLM:
+    def complete(self, system: str, messages: list, max_tokens: int | None = None) -> None:
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        raise anthropic.AuthenticationError(
+            "invalid x-api-key", response=httpx.Response(401, request=request), body=None
+        )
+
+
+def test_a_rejected_api_key_stops_the_run() -> None:
+    service = make_service(RejectedKeyLLM())
+    with pytest.raises(anthropic.AuthenticationError):
+        run_cases(service, lambda slug: BUSINESS, [CASES["catalog-01"]])
 
 
 def test_an_unknown_business_is_an_error_for_that_case() -> None:
