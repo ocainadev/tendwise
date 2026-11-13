@@ -70,7 +70,21 @@ Check its health (`503` with `"database": "error"` if PostgreSQL is unreachable)
 curl http://localhost:8000/health
 ```
 
-Run its lint and tests (needs [uv](https://docs.astral.sh/uv/); no network or database needed, the LLM is mocked):
+Index the business content (`data/businesses/<slug>/*.md`) into pgvector. Safe to run again: unchanged files are skipped, so no duplicate chunks. The first run downloads the embedding model (about 220 MB, into the `embedding-models` volume; locally into `agent-service/.cache/fastembed`):
+
+```bash
+docker compose exec agent-service python scripts/ingest.py
+```
+
+Or over HTTP, with `ADMIN_API_KEY` from your `.env` (401 with a wrong key, 503 if no key is configured):
+
+```bash
+curl -X POST -H "X-Admin-Key: $ADMIN_API_KEY" http://localhost:8000/api/v1/admin/ingest
+```
+
+Outside Docker, from `agent-service/` with `DATABASE_URL` set: `uv run python scripts/ingest.py`.
+
+Run its lint and tests (needs [uv](https://docs.astral.sh/uv/) and Docker: ingestion tests start a pgvector container with Testcontainers; the LLM and the embedding model are mocked):
 
 ```bash
 cd agent-service && uv run ruff check . && uv run ruff format --check . && uv run pytest
