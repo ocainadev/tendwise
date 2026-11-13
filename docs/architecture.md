@@ -109,6 +109,40 @@ guard_input ─┬─ blocked ────────────────�
 
 `app/gateways/business_gateway.py`: the `BusinessGateway` interface (`get_business`, `get_order_status`, `create_handoff`) and `HttpBusinessGateway`, which calls business-service with `X-Api-Key` and a 5-second timeout, maps its camelCase JSON to snake_case models and returns `None` on 404. httpx request logging is limited to warnings, because the order status URL carries `phoneLast4`.
 
+## Observability
+
+Every turn answered by `AgentService.handle_turn` (so every `/chat` call) writes **one row** to `agent.turns` (migration `002_conversations_turns.sql`). The last graph node, `log_turn`, builds a `TurnRecord` from the state and hands it to `deps.turn_logger`:
+
+- `PostgresTurnLogger` (`app/observability/turn_log.py`, passed in by `create_agent_service`) inserts the conversation row (`INSERT … ON CONFLICT (id) DO NOTHING`: business slug, channel `web`, the language of its first turn) and the turn row **in one transaction**. The chat API never manages conversations itself.
+- `AgentDeps.turn_logger` defaults to `NoOpTurnLogger`, so tests and fakes need no database.
+- Logging is best effort: if it fails, the customer still gets the reply and `log_turn` logs a warning with only the error type (its message could hold personal data).
+
+What one turn row stores:
+
+| Column | Value |
+|---|---|
+| `role` | always `assistant`: one row per turn, holding the final reply |
+| `content` | the reply after `guard_output`, phone-like numbers (9+ digits) masked as `****1234` (`app/agent/privacy.py`) |
+| `intent` | the classified intent; `NULL` when `guard_input` blocked the message |
+| `tool_calls` | JSONB list of `{name, args, outcome}`, phone digits already masked |
+| `prompt_tokens`, `completion_tokens` | summed over every LLM call of the turn (`state["llm_usage"]`) |
+| `latency_ms` | from `started_at` (set when the turn starts) to `log_turn` |
+| `cost_usd` | estimated cost (below) |
+| `model` | the model of the turn's last LLM call; `NULL` when the turn made none (fixed replies) |
+| `blocked`, `handoff` | flags, so the report needs no JSON parsing. **Additions to spec section 7** |
+
+**Cost estimate:** `app/observability/pricing.py` keeps USD prices per million input/output tokens for the models we use (Anthropic first-party prices, checked 2026-11-13: Haiku 5.5 $0.10 / $0.50, Sonnet 5.5 $2 / $10, Opus 5.5 $4 / $20). Each LLM call costs `prompt_tokens × input price + completion_tokens × output price`; the turn's cost is the sum. A model missing from the table costs 0 and logs one warning; add it to the table when you switch models. It is an estimate for the report, not the invoice (prompt caching and Haiku's price above 100K prompt tokens are ignored).
+
+**Report:** `app/observability/report.py` aggregates in SQL (`percentile_cont` for latencies) and `scripts/report.py` prints a text table: turns, conversations, latency p50/p95, total cost, average cost per conversation, handoff rate, blocked rate and the intent distribution (blocked turns count as `none`).
+
+```bash
+cd agent-service && uv run python scripts/report.py
+uv run python scripts/report.py --business joes-pizza --since 2026-11-01
+docker compose exec agent-service python scripts/report.py
+```
+
+**Retention** (spec section 9): `uv run python scripts/report.py --purge` deletes the conversations created more than `CONVERSATION_RETENTION_DAYS` (default 90) days ago, their turns (`ON DELETE CASCADE`) and their LangGraph checkpoints (`delete_thread`), which hold the message history. Run it on a schedule (e.g. a daily cron) in production.
+
 ## API contracts
 
 ### business-service
