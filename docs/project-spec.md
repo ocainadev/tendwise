@@ -247,6 +247,7 @@ One task = one branch = one PR. "Depends on" lists what must already be on main.
 | T03 | `feat/T03-business-service-domain` | Spring Boot scaffold, entities, Flyway migrations, seed with 2 businesses, 30 catalog items, 20 orders | T01 | Starts via compose; repository test with Testcontainers passes |
 | T04 | `feat/T04-order-status-endpoint` | Order status endpoint with phone check and API-key auth | T03 | Tests cover success, unknown code and wrong phone (same 404) |
 | T05 | `feat/T05-handoff-endpoints` | Handoff CRUD | T03 | Tests for create, list by status and update |
+| T25 | `feat/T25-business-endpoints` | Business info and catalog endpoints | T03 | Tests for business info, catalog and unknown slug |
 | T06 | `feat/T06-agent-service-scaffold` | FastAPI, Pydantic Settings config, /health, LLMClient interface + 1 adapter, Dockerfile | T01 | /health returns 200 via compose |
 | T07 | `feat/T07-rag-ingestion` | Chunk the .md files, embed, store in pgvector, ingest script | T06 | Running it twice creates no duplicate chunks |
 | T08 | `feat/T08-rag-retriever` | Top-k search with business filter and similarity threshold | T07 | Test: a pizzeria question never returns clothing-store chunks |

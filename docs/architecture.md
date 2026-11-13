@@ -84,8 +84,8 @@ Prefix `/api/v1`. Every call requires the `X-Api-Key` header.
 
 | Method | Route | Description |
 |---|---|---|
-| GET | `/businesses/{slug}` | Business info (hours, category, language) |
-| GET | `/businesses/{slug}/catalog` | Catalog items |
+| GET | `/businesses/{slug}` | Business info: `slug`, `name`, `category`, `defaultLanguage`, `timezone`, `openingHours` (JSON object, e.g. `{"mon": [], "tue": [{"open": "11:00", "close": "22:00"}]}`). 404 if the business does not exist |
+| GET | `/businesses/{slug}/catalog` | Catalog items ordered by name: `id`, `name`, `description`, `price` (number, 2 decimals), `currency`, `available`, `kind` (`PRODUCT`, `SERVICE`). Unavailable items are included with `available: false`. 404 if the business does not exist |
 | GET | `/orders/{code}/status?businessSlug=joes-pizza&phoneLast4=1234` | Status, fulfilment and ETA (no customer data). Returns 404 if the business or code does not exist, the order belongs to another business, or the phone does not match, without telling the cases apart. 400 if `phoneLast4` is not 4 digits |
 | POST | `/handoffs` | Create handoff. Body: `businessSlug`, `conversationId` (UUID), `reason` (`COMPLAINT`, `HUMAN_REQUEST`, `NEGATIVE_SENTIMENT`, `LOW_CONFIDENCE`), `summary` (max 2000 chars). 201 with `Location: /api/v1/handoffs/{id}` and the handoff, status `OPEN`. 404 if the business does not exist, 400 if the body is invalid |
 | GET | `/handoffs?businessSlug=joes-pizza&status=OPEN` | Handoffs of the business, oldest first. `status` is optional (absent = all). 404 if the business does not exist, 400 on an unknown status |
