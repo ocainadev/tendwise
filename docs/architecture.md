@@ -494,6 +494,26 @@ business-service.
 
 Invitation and reset tokens travel in the email link to a web page, which sends them in the request **body**, never in an API path.
 
+Details of the T31 routes (package `dev.ocaina.tendwise.auth`, Spring Security with two small filters of our own):
+
+- **Cookies.** All `SameSite=Lax` and `Secure` (`AUTH_COOKIE_SECURE=false` turns `Secure` off for plain http that is not localhost). Tokens never appear in a response body.
+
+  | Cookie | Holds | HttpOnly | Path | Max-Age |
+  |---|---|---|---|---|
+  | `tendwise_access` | access token (JWT) | yes | `/` | 15 minutes |
+  | `tendwise_refresh` | refresh token (32 random bytes, base64url) | yes | `/auth` | 30 days |
+  | `tendwise_csrf` | CSRF token (32 random bytes, base64url) | no (the web app reads it) | `/` | 30 days |
+
+- **Access token claims:** `sub` (user id), `platformRole` (`ADMIN`, absent for business staff), `memberships` (`[{"slug", "role"}]`), `iss` = `tendwise-business-service`, `iat`, `exp`. Header: `alg` = `EdDSA`, `kid` = the key's JWK thumbprint (RFC 7638). No email or name.
+- **Signing key:** `AUTH_JWT_PRIVATE_KEY`, a base64 PKCS#8 Ed25519 private key (PEM also accepted); the public key is derived from it. The service does not start without it. Each environment generates its own (command in `.env.example`); it is never committed. Tests generate one in memory.
+- **JWKS:** `GET /auth/jwks.json` returns `{"keys": [{"kty": "OKP", "crv": "Ed25519", "x", "kid", "alg": "EdDSA", "use": "sig"}]}` with `Cache-Control: public, max-age=300`.
+- **Login and refresh** answer `200` with the `/auth/me` body and set the three cookies (a refresh also rotates the CSRF token). Every failure is `401` with a fixed detail (`Invalid email or password.` for login, `Your session has ended. Please log in again.` for refresh and `/auth/me`) and deletes the cookies. Unknown emails still run one Argon2 check, so timing does not tell them apart. A disabled user cannot log in or refresh.
+- **Lockout:** the 5th consecutive failure sets `locked_until = now + 15 min` and resets `failed_login_count`, so after the lock the user has 5 new tries. The user row is locked (`SELECT … FOR UPDATE`) during a login, so parallel attempts are all counted.
+- **Refresh rotation:** the old token gets `revoked_at` and a new one (same `family_id`, 30 days from now) is stored. The row is locked during a refresh, so two refreshes with one token run in turn and the second counts as a reuse. The web app must therefore send one refresh at a time.
+- **Logout** (`204`) revokes the token's whole family and deletes the cookies; an unknown or missing refresh token still gets `204`.
+- **CSRF:** `POST`/`PUT`/`PATCH`/`DELETE` under `/auth/` need `X-CSRF-Token` equal to the `tendwise_csrf` cookie, or `403`. Exempt: `/auth/login` (no session yet). T32 adds `/api/v1/panel/` and `/api/v1/admin/`. The `X-Api-Key` service routes need no CSRF header (no cookies).
+- **Other routes:** `/api/**` is left to `ApiKeyFilter` exactly as before, Swagger stays public, `/auth/me` needs a valid access token (`401` otherwise), and any route not listed in `SecurityConfig` is denied.
+
 #### Internal API (planned)
 
 agent-service, header `X-Api-Key` with the shared service key (`BUSINESS_SERVICE_API_KEY`, already set in both services; compared in constant time). nginx never routes `/internal/`.
@@ -522,8 +542,8 @@ Today nginx sends every `/api/` path to agent-service. From T42:
 
 Panel login and tokens: [ADR 0003](adr/0003-panel-authentication.md).
 
-- **Login (T31):** email and password (Argon2id). After 5 consecutive failed logins the account is locked for 15 minutes (`users.failed_login_count`, `users.locked_until`); a successful login resets the count. Error messages are generic. TOTP 2FA is mandatory for platform admins and optional for owners (T68).
-- **Tokens (T31):** the access token is a JWT signed with Ed25519, valid 15 minutes, with the user id, platform role and memberships, in an `HttpOnly; Secure; SameSite=Lax` cookie. The refresh token (30 days) is rotated on every use, and a reused one revokes the whole family. agent-service verifies the access token with `GET /auth/jwks.json`, cached (T35). Disabling a user revokes their refresh tokens, so access ends within 15 minutes.
+- **Login (T31, done):** email and password (Argon2id). After 5 consecutive failed logins the account is locked for 15 minutes (`users.failed_login_count`, `users.locked_until`); a successful login resets the count. Error messages are generic. TOTP 2FA is mandatory for platform admins and optional for owners (T68).
+- **Tokens (T31, done):** the access token is a JWT signed with Ed25519, valid 15 minutes, with the user id, platform role and memberships, in an `HttpOnly; Secure; SameSite=Lax` cookie. The refresh token (30 days) is rotated on every use, and a reused one revokes the whole family. agent-service verifies the access token with `GET /auth/jwks.json`, cached (T35). Disabling a user revokes their refresh tokens, so access ends within 15 minutes.
 - **CSRF (T31, T35):** with cookie auth, every state-changing request (`POST`, `PUT`, `PATCH`, `DELETE`) also needs an `X-CSRF-Token` header equal to the non-HttpOnly CSRF cookie (double-submit). Both services check it.
 - **Tenant isolation (T32):** the business comes from the URL slug checked against the token's memberships, never from the body. Every repository method takes `businessId`. A shared test suite calls every panel route as a user of another business and expects 404. Optionally later: PostgreSQL row-level security as a second line of defence.
 - **Support mode (T64):** a separate, read-only, 30-minute token; a banner on every page; an audit entry when it starts and for each page viewed.

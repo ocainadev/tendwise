@@ -75,6 +75,7 @@ Requirements: Git, and Docker with Docker Compose. You also need an API key for 
    |---|---|
    | `POSTGRES_PASSWORD` | any password for the local database |
    | `BUSINESS_SERVICE_API_KEY` | any random string; both services read it from `.env` |
+   | `AUTH_JWT_PRIVATE_KEY` | the key that signs panel logins: `openssl genpkey -algorithm ed25519 -outform DER \| base64 \| tr -d '\n'` (OpenSSL 3; on macOS use Homebrew's `openssl@3`, or the Docker command in `.env.example`) |
    | `LLM_PROVIDER` and its key | `LLM_PROVIDER=openai` with `OPENAI_API_KEY`, or leave `LLM_PROVIDER` empty (Anthropic) and set `ANTHROPIC_API_KEY` |
    | `ADMIN_API_KEY` | optional; only needed for the re-index endpoint |
 
@@ -181,6 +182,16 @@ API docs: http://localhost:8080/swagger-ui. To look up a demo order (`BUSINESS_S
 
 ```bash
 curl -H "X-Api-Key: $BUSINESS_SERVICE_API_KEY" "http://localhost:8080/api/v1/orders/JP-1042/status?businessSlug=joes-pizza&phoneLast4=0102"
+```
+
+To log in as a demo owner (set `DEMO_USERS_PASSWORD` in `.env` first), keeping the session cookies in a file:
+
+```bash
+curl -c cookies.txt -H "Content-Type: application/json" -d "{\"email\": \"owner@joes-pizza.test\", \"password\": \"$DEMO_USERS_PASSWORD\"}" http://localhost:8080/auth/login
+```
+
+```bash
+curl -b cookies.txt http://localhost:8080/auth/me
 ```
 
 Its tests need Docker (Testcontainers):
