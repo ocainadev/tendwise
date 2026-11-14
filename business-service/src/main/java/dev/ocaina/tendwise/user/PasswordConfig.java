@@ -5,10 +5,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-/**
- * Password hashing with Argon2id (ADR 0003). Only spring-security-crypto is used here; the login
- * itself (Spring Security filters) comes in T31.
- */
+/** Password hashing with Argon2id (ADR 0003), used by the bootstrap and the login. */
 @Configuration
 public class PasswordConfig {
 

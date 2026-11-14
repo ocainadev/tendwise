@@ -11,7 +11,7 @@ import java.util.UUID;
 
 /**
  * One refresh token of a login session (ADR 0003). Only its SHA-256 hash is stored. Tokens of the
- * same login share a familyId, so reusing an old one can revoke them all. Issued from T31.
+ * same login share a familyId, so reusing an old one can revoke them all. Issued by AuthService.
  */
 @Entity
 @Table(name = "refresh_tokens")
@@ -44,6 +44,15 @@ public class RefreshToken {
     this.familyId = familyId;
     this.expiresAt = expiresAt;
     this.createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+  }
+
+  /** A revoked token can never be used again; using it anyway revokes its whole family. */
+  public void revoke(Instant now) {
+    revokedAt = now.truncatedTo(ChronoUnit.MICROS);
+  }
+
+  public boolean isExpired(Instant now) {
+    return !expiresAt.isAfter(now);
   }
 
   public Long getId() {

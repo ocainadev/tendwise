@@ -1,6 +1,10 @@
 spring:
   application:
     name: business-service
+  autoconfigure:
+    # Users log in through /auth/login (AuthService), so Spring Boot's default in-memory user
+    # (and its "generated security password" log line) is not wanted.
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   # Local defaults. In docker compose they are overridden by
   # SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME and SPRING_DATASOURCE_PASSWORD.
   datasource:
@@ -46,3 +50,10 @@ tendwise:
     platform-admin-password: ${PLATFORM_ADMIN_PASSWORD:}
     # When set, creates owner@<slug>.test and agent@<slug>.test for each demo business.
     demo-users-password: ${DEMO_USERS_PASSWORD:}
+  # Panel login (T31, ADR 0003).
+  auth:
+    # Base64 Ed25519 private key (PKCS#8) that signs the access tokens. Required: the service does
+    # not start without it. Generate one with the command in the README; never commit it.
+    jwt-private-key: ${AUTH_JWT_PRIVATE_KEY:}
+    # Secure flag on the session cookies. Turn it off only for plain http that is not localhost.
+    cookie-secure: ${AUTH_COOKIE_SECURE:true}
