@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Validate docker-compose.yml
         # Dummy values: compose refuses to start without the required secrets.
-        run: POSTGRES_PASSWORD=ci BUSINESS_SERVICE_API_KEY=ci docker compose config --quiet
+        run: POSTGRES_PASSWORD=ci BUSINESS_SERVICE_API_KEY=ci AUTH_JWT_PRIVATE_KEY=ci docker compose config --quiet
 
   business-service:
     name: business-service (lint + tests)

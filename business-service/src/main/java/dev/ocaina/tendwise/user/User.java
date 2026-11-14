@@ -7,6 +7,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
@@ -41,7 +42,7 @@ public class User {
   @Enumerated(EnumType.STRING)
   private UserStatus status;
 
-  /** Consecutive failed logins; the lockout itself is T31. */
+  /** Consecutive failed logins since the last successful login or the last lock. */
   private int failedLoginCount;
 
   private Instant lockedUntil;
@@ -67,6 +68,31 @@ public class User {
   /** Emails are compared and stored trimmed and lowercase. */
   public static String normalizeEmail(String email) {
     return email.trim().toLowerCase(Locale.ROOT);
+  }
+
+  /** True while a lock from too many failed logins is still running. */
+  public boolean isLocked(Instant now) {
+    return lockedUntil != null && lockedUntil.isAfter(now);
+  }
+
+  /**
+   * Counts one more failed login. The failure that reaches {@code maxFailures} locks the account
+   * for {@code lockDuration} and starts the count again, so after the lock the user has {@code
+   * maxFailures} new tries.
+   */
+  public void recordFailedLogin(Instant now, int maxFailures, Duration lockDuration) {
+    failedLoginCount++;
+    if (failedLoginCount >= maxFailures) {
+      lockedUntil = now.plus(lockDuration).truncatedTo(ChronoUnit.MICROS);
+      failedLoginCount = 0;
+    }
+  }
+
+  /** A successful login clears the failed count and any expired lock. */
+  public void recordSuccessfulLogin(Instant now) {
+    failedLoginCount = 0;
+    lockedUntil = null;
+    lastLoginAt = now.truncatedTo(ChronoUnit.MICROS);
   }
 
   public Long getId() {
