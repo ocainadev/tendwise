@@ -2,7 +2,11 @@
 
 Source of truth for the data model and API contracts. Coding agents must not add endpoints, tables or fields that are not listed here; propose them in a PR instead.
 
+**Built vs planned.** Everything without a marker describes v0.1.0 and exists in the code. Items marked **planned: T36** are approved (control panels, [panels-plan.md](panels-plan.md), decided on 2026-11-13) but not built yet: the named task is allowed to add them, and nobody else should. Items marked **deferred** are mentioned in the plan but have no contract yet; the task named next to them proposes one in its PR. Tasks are listed in [project-spec.md, section 11](project-spec.md#after-the-mvp-control-panels).
+
 ## Overview
+
+### v0.1.0 (built)
 
 ```
 ┌──────────────┐  HTTP   ┌──────────────────────────────┐  HTTP (tools)  ┌──────────────────────────┐
@@ -22,7 +26,44 @@ Source of truth for the data model and API contracts. Coding agents must not add
 - The agent never reads the `core` schema directly; it only uses the business-service API through tools.
 - Every table has `business_id`, and every query filters by it (multi-tenant).
 - Why two services: [adr/0001-two-service-architecture.md](adr/0001-two-service-architecture.md).
+- Why conversations move to business-service: [adr/0002-conversations-in-business-service.md](adr/0002-conversations-in-business-service.md). Panel login: [adr/0003-panel-authentication.md](adr/0003-panel-authentication.md). Asynchronous replies and live updates: [adr/0004-realtime-and-jobs.md](adr/0004-realtime-and-jobs.md).
 - **LLM providers:** the agent depends only on the `LLMClient` port (`app/llm/client.py`); `LLM_PROVIDER` picks the adapter in `app/llm/factory.py`. Supported: `anthropic` (Messages API, key `ANTHROPIC_API_KEY`, default model `claude-haiku-5-5`) and `openai` (Responses API with `reasoning.effort=none` and `store=false`, key `OPENAI_API_KEY`, default model `gpt-6-luna`). `LLM_MODEL` overrides the default; only the selected provider's key is needed. Gemini is planned. Provider errors are caught through `app/llm/errors.py`, so callers never import an SDK.
+
+### With the control panels (planned: T30–T73)
+
+```
+ customer: website chat widget                   staff and operator: panels in web
+ (iframe; the /demo page embeds it)              (/app/:slug/*, /admin/*)
+        │ /public/v1/** + SSE                            │ /auth/**, /api/v1/panel/**, /api/v1/admin/** + SSE
+        │ conversation token (header)                    │ JWT and CSRF cookies
+        ▼                                                ▼
+┌───────────────────────────────────────────────────────────────────────────────────────────────┐
+│ nginx (web): serves the panels, the demo and the widget, and sends each path to one service   │
+└───────────────┬───────────────────────────────────────────────────────────────┬───────────────┘
+                │ /public, /auth, /api/v1/panel, /api/v1/admin                  │ /api/v1/panel/{slug}/documents,
+                ▼                                                               ▼ /knowledge-gaps, /playground
+┌──────────────────────────────────────┐   POST /internal/v1/replies   ┌──────────────────────────────┐
+│ business-service                     │──────────────────────────────▶│ agent-service                │
+│ Java 21 · Spring Boot 3              │                               │ Python · FastAPI · LangGraph │
+│ login (JWT, JWKS) · businesses       │   tools: /api/v1/businesses,  │ RAG · guardrails · evals     │
+│ catalog · orders · handoffs          │◀──────────────────────────────│ knowledge base               │
+│ conversations · messages · jobs      │   /orders, /handoffs          │ verifies the JWT (JWKS)      │
+│ message router · job worker · SSE    │   (X-Api-Key)                 │                              │
+└──────────────────┬───────────────────┘                               └───────┬───────────────┬──────┘
+                   │                                                           │               │
+                   │       ┌───────────────────────────────────────────────────▼──────┐    LLM API
+                   └──────▶│ PostgreSQL 16 + pgvector                                 │
+                           │ schema core: owned by business-service                   │
+                           │ schema agent: owned by agent-service                     │
+                           │ LISTEN/NOTIFY: events reach every business-service       │
+                           │ instance                                                 │
+                           └──────────────────────────────────────────────────────────┘
+```
+
+- **The router:** business-service owns conversations and messages and decides who answers each customer message: the AI (an `AI_REPLY` job that calls agent-service), nobody yet (`WAITING`, staff are notified) or the staff member who took the conversation (`HUMAN`). See [Conversations and message routing](#conversations-and-message-routing).
+- **The panels:** one React app in `web` with three areas: `/app/:slug/*` business panel, `/admin/*` platform admin, `/demo` (the page that embeds the chat widget). The widget is a separate small bundle (`widget/`, plain TypeScript) loaded in an iframe (planned: T56).
+- agent-service still never reads the `core` schema, and business-service never reads the `agent` schema: usage numbers come through `GET /internal/v1/usage` (planned: T59).
+- Until T42, the browser still calls agent-service `POST /api/v1/chat` through nginx, as in v0.1.0.
 
 ## Data model
 
@@ -43,6 +84,51 @@ Source of truth for the data model and API contracts. Coding agents must not add
 - Enum values are stored as uppercase text with a `CHECK` constraint (mapped with `@Enumerated(EnumType.STRING)`).
 - `handoffs.conversation_id` is a `UUID` created by agent-service (no foreign key across schemas).
 - Migrations: `business-service/src/main/resources/db/migration` (`V1__schema.sql`, `V2__seed.sql`).
+
+#### Planned `core` tables (control panels)
+
+Each table is created by the task in the "Planned" column (its Flyway migration, see [Migration numbers](#migration-numbers)).
+
+| Table | Main columns | Planned | Notes |
+|---|---|---|---|
+| `users` | id, email (unique, stored lowercase), password_hash, name, platform_role (`ADMIN` or null), totp_secret (encrypted, null), status (`ACTIVE`, `DISABLED`), failed_login_count, locked_until, created_at, last_login_at | T30 | Argon2id hashes. `totp_secret` stays null until T68. `failed_login_count` and `locked_until` hold the lockout (T31) |
+| `memberships` | user_id, business_id, role (`OWNER`, `AGENT`), created_at | T30 | PK (user_id, business_id). One user can belong to several businesses |
+| `refresh_tokens` | id, user_id, token_hash, family_id, expires_at, revoked_at, created_at | T30 | Used from T31: rotated on every use; a reused token revokes its whole family |
+| `invitations` | id, business_id, email, role, token_hash, invited_by, expires_at, accepted_at | T34 | Token sent by email, stored hashed, valid 7 days, single use |
+| `password_resets` | id, user_id, token_hash, expires_at, used_at, created_at | T69 | Token sent by email, stored hashed, valid 1 hour, single use |
+| `plans` | id, code (unique), name, price_cents, currency, conversation_limit, seat_limit, features (jsonb) | T62 | Editable by the operator. `features`: `{"whatsapp": bool, "model": "<LLM model id>"}` |
+| `conversations` | id (UUID), business_id, channel (`WEB`, `WHATSAPP`), state (`AI`, `WAITING`, `HUMAN`, `RESOLVED`), assignee_user_id, language, customer_ref, customer_contact (encrypted, null), contact_consent_at, token_hash, last_message_at, unread_by_staff, created_at, resolved_at, version | T36 | See [Conversations and message routing](#conversations-and-message-routing) |
+| `messages` | id, conversation_id, business_id, sender (`CUSTOMER`, `AI`, `HUMAN`, `SYSTEM`), author_user_id, body, internal (bool), metadata (jsonb), created_at | T36 | `internal = true` is never sent to the customer |
+| `jobs` | id, type, payload (jsonb), status (`PENDING`, `RUNNING`, `DONE`, `FAILED`), attempts, run_at, locked_at, last_error, created_at | T36 | Worker in T39. See [Jobs](#jobs) |
+| `canned_replies` | id, business_id, shortcut, title, body, created_by | T48 | `shortcut` unique per business (typed after `/`) |
+| `api_keys` | id, business_id, name, prefix, key_hash, scopes, last_used_at, revoked_at | T57 | For the orders integration. The full key is shown once on creation; only the hash is stored |
+| `usage_daily` | business_id, day, conversations, customer_messages, ai_messages, human_messages, handoffs, resolved_by_ai, llm_cost_usd | T59 | PK (business_id, day). Filled by the nightly `USAGE_ROLLUP` job; re-running a day replaces its row |
+| `audit_log` | id, actor_user_id, business_id, action, target_type, target_id, metadata (jsonb), ip_hash, support_mode (bool), created_at | T44 | Append-only. T44 creates it and writes the inbox actions; T64 adds support-mode entries and the read API. `business_id` is null for platform-level actions |
+| `satisfaction` | conversation_id, business_id, rating (`UP`, `DOWN`), comment, created_at | T61 | PK conversation_id: one rating per conversation |
+
+New columns on existing tables:
+
+| Table | New columns | Planned | Notes |
+|---|---|---|---|
+| `businesses` | publishable_key (unique), widget_settings (jsonb) | T38 | `widget_settings`: `allowedDomains` (list), `color`, `position`. The demo businesses are seeded with the local origins |
+| `businesses` | handoff_settings (jsonb) | T41 | `autoAckMinutes` (default 3), `waitingAlertMinutes` (email to owners, T48) |
+| `businesses` | assistant_settings (jsonb) | T53 | `name`, `tone`, `greeting`, `extraInstructions` (max 1,000 characters), `languages` (enabled, subset of `en`, `es`, `pt`), `outOfHoursMessage` |
+| `businesses` | status (`TRIAL`, `ACTIVE`, `SUSPENDED`, `CANCELLED`), plan_id, trial_ends_at | T62 | Existing businesses become `ACTIVE` |
+| `handoffs` | assignee_user_id, assigned_at, first_response_at, resolved_at, resolved_by | T44 | `first_response_at` = first `HUMAN` message after the handoff; feeds the response-time metric |
+
+- **`business_id` rule for the new tables:** every new table has `business_id` and every query filters by it, except `users`, `refresh_tokens` and `password_resets` (they belong to a user, who reaches businesses through `memberships`), `plans` (platform-wide) and `jobs` (one platform-wide queue; the business is inside `payload`).
+- Settings columns are jsonb in the database and validated DTOs (records) in Java; the API never accepts a key that is not listed above.
+- Encrypted columns (`users.totp_secret`, `conversations.customer_contact`) use AES-GCM with a key from the environment; the key is never in the repository.
+- After T36, `handoffs.conversation_id` is a `core.conversations.id` created by business-service. There is still no foreign key, because v0.1.0 handoffs point to conversations that exist only in the `agent` schema; T41 checks that the conversation exists and belongs to the business.
+- `handoffs.status` follows the conversation from T41/T44 (same transaction): `WAITING` → `OPEN`, `HUMAN` → `IN_PROGRESS`, `RESOLVED` or back to `AI` → `RESOLVED`.
+
+#### Migration numbers
+
+Parallel Java PRs must not pick the same Flyway version:
+
+- **T30** adds `V3__users.sql` (`users`, `memberships`, `refresh_tokens`). The platform admin is created at startup from environment variables, together with a demo owner and agent per demo business; no migration contains a password or a password hash.
+- **T36** adds `V4__conversations.sql` (`conversations`, `messages`, `jobs`).
+- Every later Java task takes **the next free number at the time it starts** (`V5__…`, `V6__…`, …). If another PR with the same number lands first, rebase and renumber before merging. Never edit a migration that is already on main.
 
 ### Schema `agent` (owned by agent-service)
 
@@ -78,6 +164,85 @@ Source of truth for the data model and API contracts. Coding agents must not add
 #### Migrations
 
 Plain SQL files in `agent-service/migrations/` (`001_documents_chunks.sql`, ...), applied in file-name order by `app/core/migrations.py` on app startup and at the start of every ingestion. Applied files are recorded in `agent.schema_migrations`.
+
+#### Planned `agent` changes (control panels)
+
+| Table | Change | Planned |
+|---|---|---|
+| `documents` | New columns `content` (text), `source` (`FILE`, `EDITOR`, `UPLOAD`, `CATALOG`), `status` (`PENDING`, `INDEXED`, `FAILED`), `updated_by` (user id from the panel JWT, null for files). Knowledge moves from files to the database; the `data/businesses` files stay as the seed of the demo businesses (`source = FILE`). `source_path` stays the document's unique name within the business | T50 (`UPLOAD`: T19, `CATALOG`: T52) |
+| `jobs` | New, same columns, statuses and `SKIP LOCKED` worker as `core.jobs` (agent-service never touches the `core` schema, so it needs its own queue). Types: `INDEX_DOCUMENT` (T50), `REGENERATE_CATALOG` (T52) | T50 |
+| `knowledge_gaps` | New: id, business_id, question (phones and emails masked), best_similarity, created_at. One row per catalog question whose best chunk is below `RAG_MIN_SIMILARITY`. Blocked messages are not recorded. Similar questions are grouped when the panel reads them; a grouping column, if needed, is proposed in T58 | T58 |
+| `conversations` | `id` is the same UUID as `core.conversations.id` (sent by business-service from T37). `channel` also takes `playground` for knowledge-page test chats, which the usage numbers leave out | T37, T51 |
+| `turns` | Unchanged: AI telemetry | – |
+
+#### Planned agent migrations
+
+The first agent-service task that needs a migration (expected: **T50**) adds `003_knowledge_base.sql` (`documents` columns and `agent.jobs`). Every later one takes the next free number when it starts (`004_…`, `005_…`), and renumbers after a rebase if another PR took it first.
+
+## Conversations and message routing
+
+Planned: T36 (table, state machine), T38 (public API), T39 (AI reply job), T41 (handoff link, auto-ack), T44 (staff actions). Why: [ADR 0002](adr/0002-conversations-in-business-service.md).
+
+### State machine
+
+One field, `core.conversations.state`, decides who answers.
+
+```
+            handoff created (AI or customer asked), or AI reply failed 3 times
+   ┌────┐ ─────────────────────────────────────▶ ┌─────────┐   staff takes over   ┌───────┐
+   │ AI │                                         │ WAITING │ ───────────────────▶ │ HUMAN │
+   └────┘ ◀───────────────────────────────────── └─────────┘                      └───────┘
+     ▲  ▲        staff hands back to AI               │                             │  │
+     │  └─────────────────────────────────────────────┼─────────────────────────────┘  │
+     │                                                ▼ resolve                         ▼ resolve
+     │   customer writes again                  ┌──────────┐ ◀──────────────────────────┘
+     └──────────────────────────────────────────│ RESOLVED │
+                                                └──────────┘
+```
+
+| From | To | Trigger | Planned |
+|---|---|---|---|
+| `AI` | `WAITING` | A handoff is created (`POST /api/v1/handoffs`, called by the agent's `create_handoff` node) | T41 |
+| `AI` | `WAITING` | The `AI_REPLY` job failed its last attempt | T39 |
+| `WAITING` | `HUMAN` | Staff takes over, or assigns it to a colleague | T44 |
+| `HUMAN` | `HUMAN` | Staff assigns it to a colleague (only the assignee changes) | T44 |
+| `WAITING`, `HUMAN` | `AI` | Staff hands it back to the AI (release) | T44 |
+| `AI`, `WAITING`, `HUMAN` | `RESOLVED` | Staff resolves it (from `AI` too, e.g. a conversation the AI finished) | T44 |
+| `RESOLVED` | `AI` | The customer writes again (the conversation reopens) | T38 |
+
+- **AI:** each customer message enqueues an `AI_REPLY` job.
+- **WAITING:** the AI does not answer. Messages are stored, `unread_by_staff` grows and staff are notified. If nobody takes over within `handoff_settings.autoAckMinutes` (default 3), or the business is closed (`opening_hours`), the customer gets **one** automatic `SYSTEM` message (for example "Já avisei a equipe; respondemos a partir das 9h. Quer deixar um e-mail ou WhatsApp?"), sent by an `AUTO_ACK` job (T41).
+- **HUMAN:** only the assignee answers; the AI is silent.
+- **Back to AI:** the next `AI_REPLY` sends the messages exchanged with staff since the last AI turn (`staff_messages`), so the AI knows what a person said.
+- **Every transition** is one conditional `UPDATE conversations SET state = …, version = version + 1 WHERE id = … AND business_id = … AND state = <expected>` in a transaction that also writes a `SYSTEM` message and sends the event. If no row is updated, someone else changed the state first: the API answers `409 Conflict` with the current state and assignee ("Maria already took this conversation").
+- `SYSTEM` messages describe what happened (`metadata.event`: `HANDOFF_CREATED`, `TAKEN_OVER`, `ASSIGNED`, `RELEASED`, `RESOLVED`, `REOPENED`, `AUTO_ACK`, `AI_FAILED`). The ones the customer should see ("Maria joined", "back to the assistant", the auto-ack) have `internal = false`; staff-only ones (the handoff reason, assignments) have `internal = true`.
+
+### Conversation columns
+
+- `customer_ref`: an anonymous random id created with a `WEB` conversation, or a hash of the phone number for `WHATSAPP` (T18). Never the raw phone.
+- `customer_contact` and `contact_consent_at`: the email or phone the customer left after a handoff (`POST /public/v1/conversations/{id}/contact`, T41), stored only with consent and encrypted.
+- `token_hash`: SHA-256 of the conversation token (random 256 bits, returned once when the conversation starts).
+- `unread_by_staff`: number of customer messages since staff last opened the conversation; `POST …/read` sets it to 0.
+- `version`: grows by one on every state change (JPA `@Version`), a second safety net next to the conditional update.
+- `messages.metadata` for `AI` messages: `intent`, `language`, `sources` (`title`, `source_path`, `section`) and `orderCode` (the order code the agent saw, if any), copied from the `/internal/v1/replies` response. `author_user_id` is set only for `HUMAN` messages.
+
+### Message flow in state `AI`
+
+1. The widget sends `POST /public/v1/conversations/{id}/messages`. business-service stores the `CUSTOMER` message, inserts an `AI_REPLY` job in the same transaction and answers `202` with the stored message.
+2. A worker takes the job (`SELECT … FOR UPDATE SKIP LOCKED`), sends `ai.typing`, calls agent-service `POST /internal/v1/replies` and stores the `AI` message.
+3. If the agent created a handoff during that call, the state is already `WAITING` (the handoff endpoint changed it), and the reply is the fixed "a person will continue" text. If no handoff was created and the state is no longer `AI` when the reply comes back (staff took over meanwhile), the reply is dropped, so the AI never talks over a person.
+4. Each stored message sends a `NOTIFY` after the commit. Every business-service instance pushes it to the SSE streams of that conversation (widget) and that business (panel).
+5. The widget shows "typing…" between steps 1 and 4. A failed call retries with backoff (3 attempts in total); after the last one the worker stores a `SYSTEM` message (`AI_FAILED`) and moves the conversation to `WAITING`, so a person picks it up instead of the customer waiting forever.
+
+In states `WAITING` and `HUMAN` step 1 stores the message and notifies staff, with no job. In `RESOLVED` it first reopens the conversation (`REOPENED`), then continues as in `AI`.
+
+### Jobs
+
+- `core.jobs` is the queue of business-service (T36, worker T39); `agent.jobs` is agent-service's own (T50). Both work the same way.
+- A worker polls every second for `status = 'PENDING' AND run_at <= now()` with `FOR UPDATE SKIP LOCKED`, sets `RUNNING` and `locked_at`, runs the job, and sets `DONE`, or `PENDING` with a later `run_at` (backoff) and `last_error` (error type only, never message text), or `FAILED` after the last attempt.
+- A job left `RUNNING` with an old `locked_at` (the instance died) goes back to `PENDING`.
+- `AI_REPLY` jobs of one conversation run one at a time, in order: the worker skips a job whose conversation already has a `RUNNING` `AI_REPLY`.
+- Types: `AI_REPLY` (T39), `AUTO_ACK` (T41), `SEND_EMAIL` (T48, real provider T69), `USAGE_ROLLUP` (T59). A new type is added by the task that needs it and listed here.
 
 ## Agent graph
 
@@ -140,6 +305,17 @@ guard_input ─┬─ blocked ────────────────�
 
 `app/gateways/business_gateway.py`: the `BusinessGateway` interface (`get_business`, `get_order_status`, `create_handoff`) and `HttpBusinessGateway`, which calls business-service with `X-Api-Key` and a 5-second timeout, maps its camelCase JSON to snake_case models and returns `None` on 404. httpx request logging is limited to warnings, because the order status URL carries `phoneLast4`.
 
+### Planned agent changes (control panels)
+
+- **`POST /internal/v1/replies`** (T37) runs the same graph as `/api/v1/chat`. `staff_messages` are appended to `history` before the turn, so the AI does not contradict what a person said.
+- **Assistant settings** (T54): `assistantSettings` from `GET /api/v1/businesses/{slug}` (name, tone, greeting, extra instructions, languages) go into the prompts inside a delimited, length-capped section below the system rules. Outside opening hours the handoff reply says when the team is back and offers to collect a contact. The eval suite gets cases where merchant instructions try to break the rules.
+- **Knowledge gaps** (T58): the `retrieve` node records catalog questions with no chunk above the threshold.
+- **Knowledge base from the database** (T50): documents are edited in the panel and re-indexed per business by an `INDEX_DOCUMENT` job, so saving is instant.
+- **Catalog document** (T52): regenerated from `GET /api/v1/businesses/{slug}/catalog` whenever the catalog changes, so the catalog has one source of truth. **Deferred:** how business-service tells agent-service that the catalog changed is proposed in T52.
+- **Playground** (T51): a chat from the knowledge page, stored with `channel = playground`. Its `create_handoff` node does not call business-service (there is no `core` conversation); it only reports the handoff it would have created.
+- **Model per plan:** **deferred**, no task yet. `plans.features.model` holds the model id; how the agent receives it is proposed when a task is created.
+- **Copilot** (T72): `POST /internal/v1/suggest-reply` drafts an answer for staff from the transcript and the knowledge base.
+
 ## Observability
 
 Every turn answered by `AgentService.handle_turn` (so every `/chat` call) writes **one row** to `agent.turns` (migration `002_conversations_turns.sql`). The last graph node, `log_turn`, builds a `TurnRecord` from the state and hands it to `deps.turn_logger`:
@@ -195,6 +371,13 @@ Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagge
 - `businessSlug` on the order status and handoff routes keeps tenant isolation: the agent can only read and change data of the business it is talking for.
 - Handoff responses: `id`, `conversationId`, `reason`, `summary`, `status`, `createdAt`, `updatedAt`.
 
+Planned changes to these service routes (they stay at the same paths, for the agent's tools):
+
+- `GET /businesses/{slug}` adds `assistantSettings` (planned: T53, read by the agent from T54).
+- `POST /handoffs` (planned: T41): the conversation must exist in `core.conversations` for that business (404 otherwise, same as an unknown business), and the same transaction moves it to `WAITING` with a `SYSTEM` message.
+- `PATCH /handoffs/{id}` is removed in T44: from then on a handoff's status follows its conversation, and no caller uses the route (the agent only creates handoffs).
+- The `X-Api-Key` filter covers every `/api/**` path today. T32 narrows it to the service routes (`/api/v1/businesses/**`, `/api/v1/orders/**`, `/api/v1/handoffs/**`), because `/api/v1/panel/**` and `/api/v1/admin/**` use the session cookie instead.
+
 ### agent-service
 
 | Method | Route | Description |
@@ -206,3 +389,165 @@ Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagge
 - `POST /api/v1/chat` errors are JSON `{"detail": "..."}` and never contain exception text: `404` `Business not found`; `409` `Conversation belongs to another business` (tenant isolation: the business slug stored in the conversation's checkpoint must match the request); `429` when a conversation sends more than `CHAT_RATE_LIMIT_MESSAGES` (20) messages in `CHAT_RATE_LIMIT_WINDOW_SECONDS` (600) — an in-memory sliding window per process, to move to a shared store such as Redis when there is more than one process; `503` `Business service unavailable` (unreachable, 5xx, or `BUSINESS_SERVICE_API_KEY` unset) or `Assistant temporarily unavailable` (LLM provider error, the selected provider's key — `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` — unset, or the agent could not be built at startup). The agent service is built once at startup; if that fails, the app still starts and `/health` still works.
 
 - `POST /api/v1/admin/ingest` requires the `X-Admin-Key` header (compared in constant time with `ADMIN_API_KEY`): 401 if it is missing or wrong, 503 if `ADMIN_API_KEY` is not configured. 200 body: `{"added", "updated", "skipped", "deleted"}` (document counts).
+
+### Planned API families (control panels)
+
+Five families, kept apart by path prefix, so each prefix has a single kind of authentication:
+
+| Family | Prefix | Service | Authentication | Section |
+|---|---|---|---|---|
+| Public (website chat) | `/public/v1` | business-service | Publishable key to start, then the conversation token | [Public API](#public-api-planned) |
+| Panel (business staff) | `/api/v1/panel/{slug}` | business-service; knowledge routes in agent-service | Session cookies (JWT) + CSRF header | [Panel API](#panel-api-planned) |
+| Admin (operator) | `/api/v1/admin` | business-service | Session cookies, `platform_role = ADMIN` | [Admin API](#admin-api-planned) |
+| Auth | `/auth` | business-service | None (login), or the refresh cookie | [Auth API](#auth-api-planned) |
+| Internal (service to service) | `/internal/v1` | agent-service | `X-Api-Key` | [Internal API](#internal-api-planned) |
+
+The v0.1.0 service routes (`/api/v1/businesses`, `/api/v1/orders`, `/api/v1/handoffs` with `X-Api-Key`) stay as they are for the agent's tools. Errors follow RFC 7807 in business-service and `{"detail": "..."}` in agent-service, as today.
+
+#### Public API (planned)
+
+business-service. To start, the business's **publishable key** (public by design; protected by allowed domains and rate limits). After that, the **conversation token** in `Authorization: Bearer <token>`. The token never goes in a URL. Requests from an origin that is not in `widget_settings.allowedDomains` are rejected (CORS, and `frame-ancestors` on the widget page).
+
+| Method | Route | Description | Planned |
+|---|---|---|---|
+| POST | `/public/v1/conversations` | Body: `publishableKey`, `language` (optional). 201 with `conversationId`, `token` (shown only here), `greeting`. 403 for an origin that is not allowed | T38 |
+| POST | `/public/v1/conversations/{id}/messages` | Body: `body` (max 4,000 characters, like `/api/v1/chat`). 202 with the stored message. 404 for an unknown conversation or a wrong token (not told apart). 429 on rate limit (per conversation and per IP) | T38 |
+| GET | `/public/v1/conversations/{id}/messages?after=` | History after a message id, oldest first (page reload, reconnect). Never returns `internal` messages | T38 |
+| GET | `/public/v1/conversations/{id}/events` | SSE stream of this conversation (see [Real-time](#real-time-planned-t40)) | T40 |
+| POST | `/public/v1/conversations/{id}/contact` | Body: `email` or `phone`, and `consent: true` (400 without it). The customer leaves a contact so staff can answer later | T41 |
+| POST | `/public/v1/conversations/{id}/satisfaction` | Body: `rating` (`UP`, `DOWN`), `comment` (optional). One per conversation | T61 |
+
+- Message fields: `id`, `sender`, `authorName` (first name of the staff member, `HUMAN` only), `body`, `createdAt`. No `metadata`, no user ids.
+- A suspended business (T62) answers the start call with a "temporarily unavailable" problem the widget shows as is.
+- The widget reads the SSE stream with `fetch` and the `Authorization` header instead of `EventSource`, because it runs in an iframe on a third-party site.
+
+#### Panel API (planned)
+
+Session cookies ([Security](#security-planned)). Every route has `/{slug}`, and a guard checks the user's membership and role **before** the controller runs (T32). A business the user does not belong to answers `404`, the same as one that does not exist; a member without the needed role gets `403`. "AGENT" below means `AGENT` or `OWNER`.
+
+business-service:
+
+| Method | Route | Role | Planned |
+|---|---|---|---|
+| GET | `/api/v1/panel/{slug}/conversations?state=&assignee=&q=&cursor=` | AGENT | T43 |
+| GET | `/api/v1/panel/{slug}/conversations/{id}` (with messages, handoffs, satisfaction) | AGENT | T43 |
+| POST | `…/conversations/{id}/takeover` (409 if someone else has it) | AGENT | T44 |
+| POST | `…/conversations/{id}/messages` (body, `internal`) | AGENT (must be the assignee, unless `internal`) | T44 |
+| POST | `…/conversations/{id}/assign` (`userId`, a member of the business) | AGENT | T44 |
+| POST | `…/conversations/{id}/release` (back to AI) | AGENT | T44 |
+| POST | `…/conversations/{id}/resolve` | AGENT | T44 |
+| POST | `…/conversations/{id}/read` | AGENT | T44 |
+| POST | `…/conversations/{id}/typing` (no body; sends `staff.typing`, stores nothing; at most one per 3 seconds) | AGENT (assignee) | T44 |
+| GET | `/api/v1/panel/{slug}/events` (SSE for the whole business) | AGENT | T40 |
+| CRUD | `/api/v1/panel/{slug}/canned-replies` | AGENT read, OWNER write | T48 |
+| CRUD | `/api/v1/panel/{slug}/catalog` | OWNER | T52 |
+| GET, PATCH | `/api/v1/panel/{slug}/orders` (list, search, update status) | OWNER | T57 |
+| GET, PUT | `/api/v1/panel/{slug}/settings` (profile and opening hours from `businesses`, plus `assistantSettings`, `handoffSettings`, `widgetSettings`) | OWNER | T53 |
+| CRUD | `/api/v1/panel/{slug}/team`, `/api/v1/panel/{slug}/invitations` | OWNER | T34 |
+| CRUD | `/api/v1/panel/{slug}/api-keys` | OWNER | T57 |
+| GET | `/api/v1/panel/{slug}/dashboard?from=&to=` (from `usage_daily` and `handoffs`) | OWNER | T60 |
+
+agent-service (verifies the same JWT with the JWKS, and the CSRF header):
+
+| Method | Route | Role | Planned |
+|---|---|---|---|
+| GET, POST | `/api/v1/panel/{slug}/documents` | AGENT read, OWNER write | T50 |
+| GET, PUT, DELETE | `/api/v1/panel/{slug}/documents/{id}` | AGENT read, OWNER write | T50 |
+| POST | `/api/v1/panel/{slug}/documents/reindex` | OWNER | T50 |
+| GET | `/api/v1/panel/{slug}/knowledge-gaps` | OWNER | T58 |
+| POST | `/api/v1/panel/{slug}/playground` (chat with `channel = playground`, left out of the metrics) | OWNER | T51 |
+
+- **Deferred:** the orders integration API that a client's own system calls with a business API key (`api_keys`, scope per key) is proposed in T57; only the panel routes above are fixed.
+- Support mode (T64) can call every `GET` above and nothing else.
+- Dashboard and overview numbers use the metric definitions in [panels-plan.md, section 10](panels-plan.md#10-metrics-definitions).
+
+#### Admin API (planned)
+
+business-service, `platform_role = ADMIN` (403 for anyone else; from T68 also a verified TOTP).
+
+| Method | Route | Planned |
+|---|---|---|
+| GET, POST | `/api/v1/admin/businesses` (create sends the owner invitation) | T62 |
+| GET, PATCH | `/api/v1/admin/businesses/{slug}` (status and plan; limits come from the plan) | T62 |
+| POST | `/api/v1/admin/businesses/{slug}/support-session` (read-only, 30 min, audited) | T64 |
+| CRUD | `/api/v1/admin/plans` | T62 |
+| GET | `/api/v1/admin/overview?from=&to=`, `/api/v1/admin/usage?groupBy=business` | T65 |
+| GET | `/api/v1/admin/alerts` | T65 |
+| GET | `/api/v1/admin/audit-log` | T64 |
+
+#### Auth API (planned)
+
+business-service.
+
+| Method | Route | Description | Planned |
+|---|---|---|---|
+| POST | `/auth/login` | Body: `email`, `password`. Sets the access, refresh and CSRF cookies; body as `/auth/me`. 401 with one generic message for every failure; locked accounts get the same answer | T31 |
+| POST | `/auth/logout` | Revokes the refresh token family and clears the cookies | T31 |
+| POST | `/auth/refresh` | Rotates the refresh token and issues a new access token. A reused refresh token revokes its family (401) | T31 |
+| GET | `/auth/me` | User (`id`, `email`, `name`), `platformRole`, `memberships` (`slug`, `name`, `role`) | T31 |
+| GET | `/auth/jwks.json` | Public key(s) that sign the access token (JWKS), read by agent-service | T31 |
+| POST | `/auth/invitations/accept` | Body: `token`, `name`, `password`. Creates the user or adds the membership. Expired or used token: 400 | T34 |
+| POST | `/auth/password-reset` | Body: `email`. Always 202, whether the email exists or not | T69 |
+| POST | `/auth/password-reset/confirm` | Body: `token`, `password` | T69 |
+| POST | `/auth/2fa/setup` | Starts TOTP setup (secret and QR URI) for the logged-in user | T68 |
+| POST | `/auth/2fa/verify` | Body: `code`. Confirms setup, or completes a login that needs 2FA | T68 |
+
+Invitation and reset tokens travel in the email link to a web page, which sends them in the request **body**, never in an API path.
+
+#### Internal API (planned)
+
+agent-service, header `X-Api-Key` with the shared service key (`BUSINESS_SERVICE_API_KEY`, already set in both services; compared in constant time). nginx never routes `/internal/`.
+
+| Method | Route | Description | Planned |
+|---|---|---|---|
+| POST | `/internal/v1/replies` | In: `conversation_id`, `business_slug`, `message`, `staff_messages[]` (`author`, `body`, exchanged since the last AI turn). Out: `reply`, `intent`, `language`, `sources[]`, `handoff` (bool), `order_code` (or null). Same 404/503 errors as `/api/v1/chat` | T37 |
+| GET | `/internal/v1/usage?from=&to=` | Per business slug and day: turns, prompt and completion tokens, `cost_usd`. Playground conversations are left out. For the nightly rollup, so business-service never reads the `agent` schema | T59 |
+| POST | `/internal/v1/suggest-reply` | Drafts a reply for staff from the transcript and the knowledge base; staff edit it before sending | T72 |
+
+- `POST /api/v1/chat` stays as the entry point for evals and local tests. From T42 nginx no longer routes it, and its in-memory rate limit only protects that internal use.
+- **Deferred:** the WhatsApp webhook (T18) and the billing provider's webhook (T23) are proposed by those tasks.
+
+### nginx routing (planned: T42)
+
+Today nginx sends every `/api/` path to agent-service. From T42:
+
+| Path | Goes to |
+|---|---|
+| `/api/v1/panel/{slug}/documents…`, `/api/v1/panel/{slug}/knowledge-gaps`, `/api/v1/panel/{slug}/playground` | agent-service (checked first; each task adds its own location) |
+| `/public/`, `/auth/`, `/api/v1/panel/`, `/api/v1/admin/` | business-service; the SSE routes with `proxy_buffering off` and a long read timeout |
+| `/api/v1/businesses`, `/api/v1/orders`, `/api/v1/handoffs`, `/internal/`, `/api/v1/chat`, agent-service's `/api/v1/admin/ingest` | Not routed: service-to-service, evals and operator tools, reachable only inside the compose network |
+| Everything else | The single-page app (`index.html`) and the widget bundle |
+
+## Security (planned)
+
+Panel login and tokens: [ADR 0003](adr/0003-panel-authentication.md).
+
+- **Login (T31):** email and password (Argon2id). After 5 consecutive failed logins the account is locked for 15 minutes (`users.failed_login_count`, `users.locked_until`); a successful login resets the count. Error messages are generic. TOTP 2FA is mandatory for platform admins and optional for owners (T68).
+- **Tokens (T31):** the access token is a JWT signed with Ed25519, valid 15 minutes, with the user id, platform role and memberships, in an `HttpOnly; Secure; SameSite=Lax` cookie. The refresh token (30 days) is rotated on every use, and a reused one revokes the whole family. agent-service verifies the access token with `GET /auth/jwks.json`, cached (T35). Disabling a user revokes their refresh tokens, so access ends within 15 minutes.
+- **CSRF (T31, T35):** with cookie auth, every state-changing request (`POST`, `PUT`, `PATCH`, `DELETE`) also needs an `X-CSRF-Token` header equal to the non-HttpOnly CSRF cookie (double-submit). Both services check it.
+- **Tenant isolation (T32):** the business comes from the URL slug checked against the token's memberships, never from the body. Every repository method takes `businessId`. A shared test suite calls every panel route as a user of another business and expects 404. Optionally later: PostgreSQL row-level security as a second line of defence.
+- **Support mode (T64):** a separate, read-only, 30-minute token; a banner on every page; an audit entry when it starts and for each page viewed.
+- **Personal data (LGPD/GDPR):** staff see messages (they have to answer them), but logs never contain message text, phone numbers or emails. The customer's contact is stored only with consent, encrypted at rest. The retention job also purges `core.messages` and `core.conversations`, and an owner can export or delete one customer's conversations (T70). The audit log stores a hash of the IP, not the IP.
+- **Public endpoints (T38):** allowed domains per business (CORS and `frame-ancestors`), rate limits, message size limits. The per-conversation limit is counted from `core.messages` in the database, so it holds across instances (this replaces agent-service's in-memory limit for customers). The per-IP limit is in memory per instance; a shared store is proposed only when more than one instance runs.
+- **Merchant-provided text** (assistant tone, extra instructions, documents) goes into prompts inside delimited, length-capped sections below the system rules (T54), with eval cases for it.
+
+## Real-time (planned: T40)
+
+Why: [ADR 0004](adr/0004-realtime-and-jobs.md).
+
+- **Transport: Server-Sent Events.** Messages to the server are normal `POST`s; only the server→browser direction needs push. Two streams: `GET /public/v1/conversations/{id}/events` (widget, one conversation, by token) and `GET /api/v1/panel/{slug}/events` (panel, the whole business, by session).
+- **Fan-out: PostgreSQL `LISTEN/NOTIFY`.** After the commit, business-service sends `NOTIFY events, '{"businessId":…,"conversationId":…,"type":…,"id":…}'` (`id` of the message or handoff). Every instance listens on one dedicated connection and forwards the event to its open streams for that business or conversation. The payload carries ids only (the `NOTIFY` limit is 8,000 bytes); the browser fetches anything bigger.
+- **Server:** Spring MVC `SseEmitter` with Java 21 virtual threads (`spring.threads.virtual.enabled=true`), so thousands of open connections do not need thousands of platform threads. A heartbeat comment every 25 seconds.
+- **Missed events:** the SSE event id is the newest message id the client has. On reconnect the client sends `Last-Event-ID`: the widget stream replays that conversation's newer, non-internal messages from `core.messages` and the current state; the panel stream does not replay, and the client refetches its list. The database stays the source of truth; events are only hints.
+
+| Event | Sent when | Widget stream | Panel stream |
+|---|---|---|---|
+| `message.created` | A message is stored | Yes, unless `internal` | Yes |
+| `conversation.state_changed` | The state changes | Yes | Yes |
+| `conversation.assigned` | The assignee changes | No | Yes |
+| `conversation.read` | Staff opened the conversation | No | Yes |
+| `handoff.created` | A handoff is created | No | Yes |
+| `staff.typing` | The assignee is typing (`POST …/typing`) | Yes, with the first name | Yes |
+| `ai.typing` | An `AI_REPLY` job starts | Yes | Yes |
+
+`staff.typing` and `ai.typing` are sent with `NOTIFY` only and never stored.
