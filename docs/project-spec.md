@@ -20,7 +20,7 @@ Nov 12, 2026 · @Caina · Status: ready to start
 **Goals:**
 
 1. Portfolio project for the AI Engineer track of iFood's GEN IA program, with the MVP published by Nov 17, 2026.
-2. Foundation for a sellable international product: multi-tenant (many businesses, one system) from day one; WhatsApp channel right after the MVP.
+2. Foundation for a sellable international product: multi-tenant (many businesses, one system) from day one. Right after the MVP come the control panels (a business inbox where staff take over from the AI, and a platform admin), then the WhatsApp channel: see [panels-plan.md](panels-plan.md) and section 11.
 
 **MVP scope:** web chat, two demo businesses (a pizzeria and a clothing store), RAG, order status lookup, human handoff, guardrails, observability, evals, docker compose, README with a demo GIF.
 
@@ -238,7 +238,7 @@ Errors follow RFC 7807 (Problem Details); docs via springdoc/Swagger at `/swagge
 
 One task = one branch = one PR. "Depends on" lists what must already be on main.
 
-**MVP (by Nov 17):**
+### MVP (by Nov 17)
 
 | ID | Branch | Task | Depends on | Acceptance criteria |
 |---|---|---|---|---|
@@ -263,17 +263,115 @@ One task = one branch = one PR. "Depends on" lists what must already be on main.
 | T27 | `fix/T27-eval-smoke-fixes` | Fixes from the real-model evals and smoke test: ingestion on startup, phone digits in the same message as the order code, cross-language retrieval, language of blocked replies, "no, but" answers | T15, T26 | Each fix has a unit test with a mocked LLM; evals re-run with the real model |
 | T26 | `feat/T26-openai-adapter` | OpenAI LLM adapter | T06 | With `LLM_PROVIDER=openai` and `OPENAI_API_KEY` the agent works with no other change; adapter tested with a mocked SDK |
 
-**After the MVP:**
+### After the MVP: control panels
 
-| ID | Branch | Task |
-|---|---|---|
-| T17 | `feat/T17-handoff-panel` | Web panel for staff to see and take over handoffs |
-| T18 | `feat/T18-whatsapp-channel` | WhatsApp channel (WhatsApp Business Cloud API) |
-| T19 | `feat/T19-catalog-upload` | Merchant uploads a catalog as PDF/photo and it gets indexed |
-| T20 | `ci/T20-deploy` | Public deploy with a demo URL |
-| T21 | `feat/T21-tracing` | Tracing with Langfuse or OpenTelemetry |
-| T22 | `feat/T22-merchant-auth` | Merchant login and per-business API keys |
-| T23 | `feat/T23-billing` | Subscription billing (Stripe) |
+The next product step is two control panels: a **business panel** where each client's staff see conversations live, take over from the AI, reply, hand back and resolve, and a **platform admin** for the operator who sells Tendwise. Product view and reasoning: [panels-plan.md](panels-plan.md) (approved 2026-11-13). Contracts: [architecture.md](architecture.md) and ADRs [0002](adr/0002-conversations-in-business-service.md), [0003](adr/0003-panel-authentication.md) and [0004](adr/0004-realtime-and-jobs.md).
+
+This backlog **replaces the old T17 (handoff panel), T22 (merchant auth) and T23 (Stripe billing) rows**: T17 and T22 become phases 1–3, and T23 is rewritten in phase 7. T18–T21 keep their IDs and are placed in phases 7 and 8.
+
+- One task = one branch = one PR, under about 400 changed lines. Branch names follow section 12 (`<type>/<ID>-<short-description>`).
+- Tracks for parallel sessions: **J** = business-service (Java), **P** = agent-service (Python), **W** = web/widget.
+- Migration numbers: [architecture.md, migration numbers](architecture.md#migration-numbers) (Java) and [planned agent migrations](architecture.md#planned-agent-migrations).
+
+#### Phase 0: decisions
+
+| ID | Track | Task | Depends on | Acceptance criteria |
+|---|---|---|---|---|
+| T28 | – | Control panels plan (`docs/panels-plan.md`) | – | Reviewed; decisions answered (approved 2026-11-13) |
+| T29 | – | ADR 0002 (conversations in business-service), ADR 0003 (auth), ADR 0004 (SSE + LISTEN/NOTIFY + job table); approved model and APIs in `architecture.md`; this backlog | T28 | Docs only; the following tasks can cite them |
+
+#### Phase 1: identity and access
+
+| ID | Track | Task | Depends on | Acceptance criteria |
+|---|---|---|---|---|
+| T30 | J | `users`, `memberships`, `refresh_tokens` migration (`V3__users.sql`) and entities; platform admin created from env on startup; demo owner and agent per demo business | T29 | Repository tests; no password in logs or seeds |
+| T31 | J | Login, logout, refresh (rotation and reuse detection), `/auth/me`, lockout, CSRF, JWKS endpoint | T30 | Tests: wrong password, lockout, expired access, reused refresh revokes the family |
+| T32 | J | Panel authorization: slug guard, roles, 404 for foreign businesses; `X-Api-Key` filter narrowed to the service routes; tenant isolation test suite | T31 | Every route in the suite returns 404 for another business's user |
+| T33 | W | Panel shell: router, React Query, login page, layout, business switcher, role-based menu, pt-BR i18n; current chat moves to `/demo` | T31 | Vitest: unauthenticated user goes to login; `/demo` still works |
+| T34 | J | Invitations (create, accept and set password), team API (list members, change role, remove) and an `EmailSender` port (log adapter in dev) | T32 | Expired and reused tokens rejected |
+| T35 | P | Verify panel JWTs in agent-service (JWKS cache, role and slug checks, CSRF header) | T31 | Tests: valid, expired, wrong business, wrong role |
+
+#### Phase 2: conversations as domain data
+
+| ID | Track | Task | Depends on | Acceptance criteria |
+|---|---|---|---|---|
+| T36 | J | `conversations`, `messages`, `jobs` migration (`V4__conversations.sql`); conversation service with the state machine and conditional updates | T29 | Tests for every transition; concurrent takeover: one 409 |
+| T37 | P | `POST /internal/v1/replies` with `staff_messages`; `/api/v1/chat` kept for evals | T29 | End-to-end test with mocked LLM; evals still run |
+| T38 | J | Public conversation API (start, send 202, history), publishable key and widget allowed domains, conversation token, rate limits | T36 | Tests: wrong token 404, rate limit 429, foreign origin rejected |
+| T39 | J | Job worker (`SKIP LOCKED`, retries, backoff) and the AI reply job calling T37; failure → `WAITING` | T37, T38 | Tests: success, retry, final failure moves to WAITING |
+| T40 | J | Event bus (`LISTEN/NOTIFY`) and SSE endpoints (widget by token, panel by business), heartbeat, `Last-Event-ID` | T38 | Test: an event committed in one transaction reaches a subscribed stream; foreign stream gets nothing |
+| T41 | J | Handoff ↔ conversation: creating a handoff moves the conversation to `WAITING` with a SYSTEM message; auto-ack after N minutes or when closed; public contact endpoint (email or phone, with consent, encrypted) | T36 | Tests: AI job skipped while WAITING/HUMAN; one auto-ack only; contact without consent rejected |
+| T42 | W | Demo chat on the public API + SSE: typing indicator, staff messages with name, "joined" and "back to the assistant" events; nginx routes for both services | T39, T40 | Playwright: AI conversation works as before |
+
+#### Phase 3: business inbox (first sellable version)
+
+| ID | Track | Task | Depends on | Acceptance criteria |
+|---|---|---|---|---|
+| T43 | J | Panel conversation API: list with filters and cursor pagination, detail, unread counts | T32, T36 | Tests incl. tenant isolation |
+| T44 | J | Actions: take over, reply, internal note, assign, release, resolve, read, typing; handoff fields; `audit_log` table and entries; `PATCH /handoffs/{id}` removed | T43, T41 | Tests: only the assignee replies; internal notes never reach the public API |
+| T45 | W | Inbox: three columns, tabs, live list and transcript through SSE, side panel | T33, T43, T40 | Vitest; a new handoff appears without reload |
+| T46 | W | Reply box and actions, 409 handling ("Maria already took this conversation"), keyboard shortcuts | T44, T45 | Playwright: the full handoff flow of the plan's section 11 |
+| T47 | W | Notifications: sound, tab badge, browser notification, waiting timer colours | T45 | Notification asked only after a click (browser rule) |
+| T48 | J | Canned replies API; email to owners when a handoff waits more than N minutes | T44, T34 | Tests |
+| T49 | W | Canned replies with `/` in the reply box; management page | T48, T46 | Vitest |
+
+#### Phase 4: client self-service
+
+| ID | Track | Task | Depends on | Acceptance criteria |
+|---|---|---|---|---|
+| T50 | P | Knowledge base in the database: `documents.content/source/status`, `agent.jobs`, panel CRUD, `INDEX_DOCUMENT` re-index per business; seeds from `data/businesses` | T35 | Editing a document changes the next answer; another business is untouched |
+| T51 | P+W | Playground endpoint (agent-service) and knowledge page: list, markdown editor with preview, status, playground | T50, T33 | Vitest; playground conversations are not counted |
+| T52 | J+P | Catalog CRUD in the panel; catalog document regenerated on change | T32, T50 | Marking an item unavailable changes the AI's answer |
+| T53 | J | Settings API: profile, hours, languages, assistant, handoff and widget settings | T32 | Validation tests |
+| T54 | P | Agent uses assistant settings and business hours in prompts and handoff replies | T53 | Mocked LLM tests; evals with merchant instructions |
+| T55 | W | Settings and team pages | T53, T34 | Vitest |
+| T56 | W | Widget bundle (iframe, publishable key, colours, allowed domains), contact form after a handoff, and install-snippet page | T42, T53, T41 | Works on a page on another origin; blocked on a domain not allowed |
+| T57 | J | Orders: panel list and status update; orders API with business API keys (hashed, shown once) | T32 | Tests: revoked key 401; key of business A cannot touch B |
+
+#### Phase 5: client analytics and quality
+
+| ID | Track | Task | Depends on | Acceptance criteria |
+|---|---|---|---|---|
+| T58 | P | Knowledge gaps: record, group similar questions, panel endpoint | T50 | Masking test; off-topic blocked messages are not gaps |
+| T59 | J+P | `GET /internal/v1/usage` and the nightly `usage_daily` rollup | T39 | Rollup is idempotent (re-running a day gives the same row) |
+| T60 | J+W | Dashboard API (`GET /api/v1/panel/{slug}/dashboard`), client dashboard page, and unanswered questions with "add to FAQ" | T58, T59 | Tests with fixed data; Vitest |
+| T61 | J+W | Satisfaction (thumbs) at the end of a conversation | T44, T56 | Tests |
+
+#### Phase 6: platform admin
+
+| ID | Track | Task | Depends on | Acceptance criteria |
+|---|---|---|---|---|
+| T62 | J | Admin API: businesses (create with owner invite, status, plan), plans; a suspended business's widget shows "temporarily unavailable" | T34 | Tests: non-admin 403 |
+| T63 | W | Admin: business list and onboarding wizard | T62, T51 | New business answering in the playground in under 10 minutes |
+| T64 | J | Support mode (read-only, 30 min, audited) and audit log API | T62 | Tests: support token cannot write; every access audited |
+| T65 | J | Overview and usage API, health alerts | T59, T62 | Tests with fixed data |
+| T66 | W | Admin overview, business detail, alerts and audit log pages | T64, T65 | Vitest |
+| T67 | J | Plan limits: conversations per month (warning at 80%, then contact-capture fallback at 100%) and seats | T62, T59 | Tests |
+| T68 | J+W | TOTP 2FA, mandatory for platform admins | T31, T33 | Tests: admin without 2FA cannot reach `/admin` |
+
+#### Phase 7: go-live and monetisation
+
+| ID | Track | Task | Depends on | Acceptance criteria |
+|---|---|---|---|---|
+| T20 | – | Public deploy with domain and HTTPS, separate staging | T46 | Hosting choice and monthly cost recorded in an ADR; staging and production reachable over HTTPS |
+| T23 | J | Billing: provider checkout and customer portal, webhooks → plan and status | T62 | Provider chosen in an ADR (Pix and boleto if the first clients are in Brazil); tests with signed fake webhooks; an unsigned webhook is rejected |
+| T69 | J | Transactional email adapter (invites, password reset, handoff alerts) and the password reset endpoints | T34 | Tests: reset token expires and works once; the log adapter stays the default in dev and tests |
+| T70 | J+P | LGPD: retention for messages, per-customer export and deletion, privacy docs | T44 | Tests: retention purges old messages and conversations; export and deletion cover only that customer |
+| T71 | – | Backups and a tested restore | T20 | A restore of a recent backup is run on staging and documented |
+| T21 | P | Tracing (Langfuse or OpenTelemetry) | T37 | Every AI reply has a trace of its nodes and LLM calls; no phone number or email in trace attributes |
+
+#### Phase 8: growth
+
+| ID | Track | Task | Depends on | Acceptance criteria |
+|---|---|---|---|---|
+| T18 | J | WhatsApp channel as an inbound adapter of the router; staff replies go out through WhatsApp | T41, T44 | Tests with a mocked WhatsApp API: inbound message routed, staff reply sent, webhook signature checked |
+| T19 | P | Knowledge upload from PDF or photo | T50 | An upload becomes a document with `source = UPLOAD` and status `INDEXED`; tests with a mocked extractor |
+| T72 | P+W | Copilot: AI-suggested reply for staff | T44, T37 | Mocked LLM tests; nothing is sent without a staff click |
+| T73 | W | Installable PWA with push notifications for staff on mobile | T47 | Push notification on a new handoff with the tab closed |
+
+#### Fastest path to the first paying client
+
+Phases 1–3, plus T53, T56 and T62, plus T20 and T69: login, the inbox with human replies, settings, the installable website chat, creating a client from the admin, and deploy with email. About 30 PRs. With J, P and W sessions in parallel, the critical path is T29 → T30 → T31 → T32 → T43 → T44 → T46. Knowledge editing, analytics, the full admin and billing can come right after the first client starts using it (until then, you can edit their knowledge files and charge them by hand).
 
 ## 12. Git workflow
 
