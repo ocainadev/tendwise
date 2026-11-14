@@ -23,6 +23,7 @@ STATE_CLASSES = [
     ("app.agent.intent", "IntentResult"),
     ("app.rag.retriever", "RetrievedChunk"),
     ("app.agent.state", "Source"),
+    ("app.agent.staff", "StaffMessage"),
 ]
 
 

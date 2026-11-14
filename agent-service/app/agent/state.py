@@ -23,6 +23,7 @@ from typing import Literal, TypedDict
 from pydantic import BaseModel
 
 from app.agent.intent import IntentResult, Language
+from app.agent.staff import StaffMessage
 from app.llm.client import LLMResponse, Message
 from app.rag.retriever import RetrievedChunk
 
@@ -48,8 +49,9 @@ class AgentState(TypedDict):
     conversation_id: str
 
     # --- persistent: survive across turns of the same conversation ---
-    # Every customer message and final reply, oldest first (user, assistant, ...).
-    history: list[Message]
+    # Every customer message and final reply, oldest first (user, assistant, ...),
+    # plus the staff messages of a handoff (T37), in the order they were sent.
+    history: list[Message | StaffMessage]
     # Consecutive turns with negative sentiment; back to 0 on any other sentiment.
     negative_streak: int
     # Order data the customer already gave, kept until get_order_status is called.

@@ -8,7 +8,7 @@ import psycopg
 from fastapi import FastAPI
 
 from app.agent.service import create_agent_service
-from app.api import admin, chat, health
+from app.api import admin, chat, health, internal
 from app.api.rate_limit import create_rate_limiter
 from app.core.config import Settings, get_settings
 from app.core.db import CONNECT_TIMEOUT_SECONDS
@@ -128,6 +128,7 @@ def create_app(run_startup: bool = False) -> FastAPI:
     app.include_router(health.router)
     app.include_router(admin.router)
     app.include_router(chat.router)
+    app.include_router(internal.router)
     return app
 
 

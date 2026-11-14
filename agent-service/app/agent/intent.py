@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from app.agent.prompt_input import speaker
+from app.agent.staff import StaffMessage
 from app.guardrails.normalize import normalize
 from app.llm.client import LLMClient, LLMResponse, Message
 from app.prompts import load_prompt
@@ -124,7 +126,7 @@ def phone_last4_in(message: str) -> str | None:
 def classify_intent(
     llm: LLMClient,
     message: str,
-    history: list[Message],
+    history: list[Message | StaffMessage],
     default_language: Language = "en",
 ) -> ClassificationOutcome:
     """Classify `message` (the customer's latest message) given the recent `history`.
@@ -163,7 +165,7 @@ def classify_intent(
     return ClassificationOutcome(result=fallback, llm_responses=responses, used_fallback=True)
 
 
-def _build_input(message: str, history: list[Message], default_language: str) -> str:
+def _build_input(message: str, history: list[Message | StaffMessage], default_language: str) -> str:
     """Lay out the recent turns and the latest message in the tags the prompt describes.
 
     Everything goes in one user turn, so the latest customer message stays
@@ -172,8 +174,7 @@ def _build_input(message: str, history: list[Message], default_language: str) ->
     """
     lines = [f"Business default language: {default_language}", "", "<history>"]
     for turn in history[-HISTORY_TURNS:]:
-        speaker = "Customer" if turn.role == "user" else "Assistant"
-        lines.append(f"{speaker}: {turn.content}")
+        lines.append(f"{speaker(turn)}: {turn.content}")
     lines += ["</history>", "", "<latest_customer_message>", message, "</latest_customer_message>"]
     return "\n".join(lines)
 
