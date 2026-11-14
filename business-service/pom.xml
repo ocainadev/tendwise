@@ -21,6 +21,7 @@
     <java.version>21</java.version>
     <spotless.version>3.11.0</spotless.version>
     <springdoc.version>2.10.0</springdoc.version>
+    <bouncycastle.version>1.81</bouncycastle.version>
   </properties>
 
   <dependencies>
@@ -42,6 +43,18 @@
       <groupId>org.springdoc</groupId>
       <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
       <version>${springdoc.version}</version>
+    </dependency>
+    <!-- Argon2id password hashing (ADR 0003). Only the crypto module, not the Spring Security
+         starter: login and filters come in T31. Version managed by Spring Boot. -->
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-crypto</artifactId>
+    </dependency>
+    <!-- Argon2PasswordEncoder runs the Argon2 algorithm from Bouncy Castle (not managed by Boot). -->
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk18on</artifactId>
+      <version>${bouncycastle.version}</version>
     </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
