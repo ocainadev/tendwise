@@ -7,6 +7,11 @@ spring:
     url: jdbc:postgresql://localhost:5432/tendwise
     username: tendwise
     password: ${POSTGRES_PASSWORD:}
+    hikari:
+      data-source-properties:
+        # Keep PostgreSQL's error "Detail" (e.g. "Key (email)=(ana@example.com) already exists")
+        # out of exceptions and logs, so a constraint error never logs personal data.
+        logServerErrorDetail: false
   flyway:
     # Flyway creates the core schema and keeps its history table there.
     schemas: core
@@ -35,3 +40,9 @@ tendwise:
   # Shared key that callers (agent-service) send in the X-Api-Key header.
   # Required: the service does not start without it.
   api-key: ${BUSINESS_SERVICE_API_KEY:}
+  # First users, created on startup by UserBootstrap (T30). Empty values skip that step.
+  bootstrap:
+    platform-admin-email: ${PLATFORM_ADMIN_EMAIL:}
+    platform-admin-password: ${PLATFORM_ADMIN_PASSWORD:}
+    # When set, creates owner@<slug>.test and agent@<slug>.test for each demo business.
+    demo-users-password: ${DEMO_USERS_PASSWORD:}
