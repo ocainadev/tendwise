@@ -32,6 +32,9 @@ services:
       PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-}
       PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-}
       DEMO_USERS_PASSWORD: ${DEMO_USERS_PASSWORD:-}
+      # Panel login: the key that signs access tokens (see .env.example for how to make one).
+      AUTH_JWT_PRIVATE_KEY: ${AUTH_JWT_PRIVATE_KEY:?Set AUTH_JWT_PRIVATE_KEY in .env}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
     ports:
       - "8080:8080"
 
