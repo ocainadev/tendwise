@@ -27,8 +27,9 @@ class CsrfHeaderFilter extends OncePerRequestFilter {
 
   private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS", "TRACE");
 
-  /** Routes that use the session cookies. T32 adds /api/v1/panel/ and /api/v1/admin/. */
-  private static final List<String> PROTECTED_PREFIXES = List.of("/auth/");
+  /** Routes that use the session cookies. */
+  private static final List<String> PROTECTED_PREFIXES =
+      List.of("/auth/", "/api/v1/panel/", "/api/v1/admin/");
 
   /** Called before there is a session (and so before there is a CSRF cookie). */
   private static final Set<String> EXEMPT_PATHS = Set.of("/auth/login");

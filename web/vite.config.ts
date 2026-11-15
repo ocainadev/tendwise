@@ -1,13 +1,21 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
+const BUSINESS_SERVICE = 'http://localhost:8080'
+const AGENT_SERVICE = 'http://localhost:8000'
+
 export default defineConfig({
   plugins: [react()],
   server: {
-    // In development the browser talks to Vite only; Vite forwards /api to
-    // agent-service, so the page and the API share one origin (no CORS).
+    // In development the browser talks to Vite only; Vite forwards the API
+    // paths, so the page and the APIs share one origin (cookies, no CORS).
+    // Same routing as nginx.conf. The first matching entry wins, so the
+    // business-service prefixes come before the catch-all /api.
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/auth/': BUSINESS_SERVICE,
+      '/api/v1/panel/': BUSINESS_SERVICE,
+      '/api/v1/admin/': BUSINESS_SERVICE,
+      '/api': AGENT_SERVICE,
     },
   },
   test: {

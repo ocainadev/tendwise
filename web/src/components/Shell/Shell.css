@@ -1,0 +1,229 @@
+/* Panel shell: login card, sidebar layout and placeholder pages.
+   Plain CSS with the colour variables from index.css, like the demo chat. */
+
+.shell-centered {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 16px;
+  text-align: center;
+}
+
+.shell-card {
+  width: 100%;
+  max-width: 380px;
+  padding: 24px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  text-align: left;
+}
+
+.shell-card h1 {
+  margin: 0 0 16px;
+  font-size: 1.25rem;
+  color: var(--color-primary);
+}
+
+.shell-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.shell-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.shell-field input,
+.shell-select {
+  padding: 8px 10px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.shell-error {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--color-error-text);
+  background: var(--color-error-bg);
+  border-radius: 8px;
+}
+
+.shell-button {
+  padding: 8px 14px;
+  color: #ffffff;
+  background: var(--color-primary);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.shell-button:hover:not(:disabled) {
+  background: var(--color-primary-dark);
+}
+
+.shell-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.shell-button--secondary {
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid var(--color-border);
+}
+
+.shell-button--secondary:hover:not(:disabled) {
+  background: var(--color-bg);
+}
+
+.shell-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shell-list a {
+  display: block;
+  padding: 10px 12px;
+  color: var(--color-text);
+  text-decoration: none;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.shell-list a:hover {
+  border-color: var(--color-primary);
+}
+
+/* Sidebar on the left, page on the right; stacked on narrow screens. */
+.shell-layout {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.shell-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 240px;
+  flex-shrink: 0;
+  padding: 16px;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+}
+
+.shell-sidebar__logo {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.shell-sidebar__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+}
+
+.shell-sidebar__muted {
+  color: var(--color-muted);
+}
+
+.shell-sidebar__menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shell-sidebar__link {
+  display: block;
+  padding: 8px 10px;
+  color: var(--color-text);
+  text-decoration: none;
+  border-radius: 8px;
+}
+
+.shell-sidebar__link:hover {
+  background: var(--color-bg);
+}
+
+.shell-sidebar__link.active {
+  color: var(--color-primary);
+  font-weight: 600;
+  background: var(--color-bg);
+}
+
+.shell-sidebar__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  font-size: 0.9rem;
+}
+
+.shell-sidebar__user {
+  color: var(--color-muted);
+}
+
+.shell-main {
+  flex: 1;
+  min-width: 0;
+  padding: 24px;
+}
+
+.shell-main h1 {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+}
+
+.shell-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  color: var(--color-notice-text);
+  background: var(--color-notice-bg);
+  border-radius: 999px;
+}
+
+@media (max-width: 720px) {
+  .shell-layout {
+    flex-direction: column;
+  }
+
+  .shell-sidebar {
+    width: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .shell-sidebar__menu {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .shell-sidebar__footer {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
