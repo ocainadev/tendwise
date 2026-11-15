@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     business_service_url: str = "http://business-service:8080"
     business_service_api_key: SecretStr | None = None
 
+    # Panel auth (T35): business-service's public keys, used to check the
+    # access token cookie the panel sends with its knowledge base requests.
+    auth_jwks_url: str = "http://business-service:8080/auth/jwks.json"
+
     # Key required by POST /api/v1/admin/ingest (T07). Without it the endpoint
     # answers 503, so ingestion over HTTP is off unless you set a key.
     admin_api_key: SecretStr | None = None
