@@ -35,6 +35,12 @@ public class Business {
   @JdbcTypeCode(SqlTypes.JSON)
   private String openingHours;
 
+  /** Starts a widget conversation. Public by design: it is in the page that embeds the widget. */
+  private String publishableKey;
+
+  @JdbcTypeCode(SqlTypes.JSON)
+  private WidgetSettings widgetSettings;
+
   /** Set by the database default. */
   @Column(insertable = false, updatable = false)
   private Instant createdAt;
@@ -68,6 +74,14 @@ public class Business {
 
   public String getOpeningHours() {
     return openingHours;
+  }
+
+  public String getPublishableKey() {
+    return publishableKey;
+  }
+
+  public WidgetSettings getWidgetSettings() {
+    return widgetSettings == null ? new WidgetSettings(null, null, null) : widgetSettings;
   }
 
   public Instant getCreatedAt() {
