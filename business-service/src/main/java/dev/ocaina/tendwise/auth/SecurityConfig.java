@@ -1,6 +1,7 @@
 package dev.ocaina.tendwise.auth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.ocaina.tendwise.publicapi.PublicApiCors;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -32,6 +33,8 @@ public class SecurityConfig {
         .httpBasic(basic -> basic.disable())
         .logout(logout -> logout.disable())
         .requestCache(cache -> cache.disable())
+        // Only /public/v1/** has CORS (the website chat widget); see PublicApiCors.
+        .cors(cors -> cors.configurationSource(PublicApiCors.source()))
         .addFilterBefore(
             new CsrfHeaderFilter(objectMapper), UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(
@@ -42,6 +45,10 @@ public class SecurityConfig {
                 .authenticated()
                 // Login, refresh, logout and the JWKS check their own input.
                 .requestMatchers("/auth/**")
+                .permitAll()
+                // The website chat widget (T38): publishable key, then the conversation token.
+                // No cookies, so no CSRF check (CsrfHeaderFilter does not cover /public/).
+                .requestMatchers("/public/v1/**")
                 .permitAll()
                 // Checked by ApiKeyFilter (X-Api-Key).
                 .requestMatchers("/api/**")
