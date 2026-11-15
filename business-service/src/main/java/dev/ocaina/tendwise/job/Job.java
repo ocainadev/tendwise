@@ -15,8 +15,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * A row of the core.jobs queue. T36 only inserts jobs; the worker that runs them is T39. The queue
- * is platform-wide, so the business id travels inside the payload.
+ * A row of the core.jobs queue. T36 and T41 only insert jobs; the worker that runs them is T39. The
+ * queue is platform-wide, so the business id travels inside the payload.
  */
 @Entity
 @Table(name = "jobs")
@@ -51,11 +51,11 @@ public class Job {
   /** Required by JPA. */
   protected Job() {}
 
-  private Job(JobType type, Map<String, Object> payload) {
+  private Job(JobType type, Map<String, Object> payload, Instant runAt) {
     this.type = type;
     this.payload = payload;
     this.status = JobStatus.PENDING;
-    this.runAt = Instant.now();
+    this.runAt = runAt;
   }
 
   /** Answer the customer message messageId of the conversation. Runs as soon as possible. */
@@ -65,7 +65,22 @@ public class Job {
         Map.of(
             "businessId", businessId,
             "conversationId", conversationId.toString(),
-            "messageId", messageId));
+            "messageId", messageId),
+        Instant.now());
+  }
+
+  /**
+   * Send the one automatic message of handoff handoffId, at runAt, if nobody took over by then
+   * (handler: AutoAckJobHandler, run by the worker in T39).
+   */
+  public static Job autoAck(Long businessId, UUID conversationId, Long handoffId, Instant runAt) {
+    return new Job(
+        JobType.AUTO_ACK,
+        Map.of(
+            "businessId", businessId,
+            "conversationId", conversationId.toString(),
+            "handoffId", handoffId),
+        runAt);
   }
 
   public Long getId() {

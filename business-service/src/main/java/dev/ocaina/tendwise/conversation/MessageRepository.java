@@ -31,4 +31,17 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
         AND m.createdAt > :since
       """)
   long countCustomerMessagesSince(UUID conversationId, Long businessId, Instant since);
+
+  /** True when the auto-ack of this handoff was already sent (it is sent only once). */
+  @Query(
+      value =
+          """
+          SELECT EXISTS (
+            SELECT 1 FROM core.messages
+            WHERE conversation_id = :conversationId AND business_id = :businessId
+              AND sender = 'SYSTEM' AND metadata ->> 'event' = 'AUTO_ACK'
+              AND metadata ->> 'handoffId' = CAST(:handoffId AS TEXT))
+          """,
+      nativeQuery = true)
+  boolean existsAutoAck(UUID conversationId, Long businessId, Long handoffId);
 }

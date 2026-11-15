@@ -12,6 +12,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.ocaina.tendwise.TestcontainersConfiguration;
+import dev.ocaina.tendwise.business.BusinessRepository;
+import dev.ocaina.tendwise.conversation.Channel;
+import dev.ocaina.tendwise.conversation.ConversationService;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -28,7 +31,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Full stack test: API-key filter, controller, service and the seeded PostgreSQL (businesses
- * joes-pizza and denim-corner, no handoffs).
+ * joes-pizza and denim-corner, no handoffs). Since T41 a handoff needs a conversation of its
+ * business in state AI, so each handoff gets a new one (the conversation side is tested in
+ * HandoffConversationTest).
  *
  * <p>{@code @Transactional} rolls back every test, so tests never see each other's handoffs.
  */
@@ -42,10 +47,12 @@ class HandoffApiTest {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
+  @Autowired private BusinessRepository businesses;
+  @Autowired private ConversationService conversations;
 
   @Test
   void createReturns201WithLocationAndOpenStatus() throws Exception {
-    UUID conversationId = UUID.randomUUID();
+    UUID conversationId = newConversation("joes-pizza");
 
     ResultActions result =
         postHandoff(createBody("joes-pizza", conversationId, "COMPLAINT", "Cold pizza."));
@@ -153,7 +160,8 @@ class HandoffApiTest {
   @Test
   void updateStatusReturnsTheUpdatedHandoff() throws Exception {
     ResultActions created =
-        postHandoff(createBody("joes-pizza", UUID.randomUUID(), "COMPLAINT", "Cold pizza."));
+        postHandoff(
+            createBody("joes-pizza", newConversation("joes-pizza"), "COMPLAINT", "Cold pizza."));
     JsonNode before = readJson(created);
     long id = before.get("id").asLong();
 
@@ -204,6 +212,14 @@ class HandoffApiTest {
 
   // --- helpers ---
 
+  /** A new conversation of the business, in state AI. */
+  private UUID newConversation(String slug) {
+    Long businessId = businesses.findBySlug(slug).orElseThrow().getId();
+    return conversations
+        .start(businessId, Channel.WEB, "en", UUID.randomUUID().toString(), null)
+        .getId();
+  }
+
   private String createBody(String slug, UUID conversationId, String reason, String summary)
       throws Exception {
     Map<String, Object> body = new LinkedHashMap<>();
@@ -225,7 +241,7 @@ class HandoffApiTest {
   /** Creates a handoff and returns its id. */
   private long createHandoff(String slug, String reason) throws Exception {
     ResultActions result =
-        postHandoff(createBody(slug, UUID.randomUUID(), reason, "Summary."))
+        postHandoff(createBody(slug, newConversation(slug), reason, "Summary."))
             .andExpect(status().isCreated());
     return readJson(result).get("id").asLong();
   }

@@ -7,6 +7,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Map;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -14,6 +15,8 @@ import org.hibernate.type.SqlTypes;
 @Entity
 @Table(name = "businesses")
 public class Business {
+
+  static final int DEFAULT_AUTO_ACK_MINUTES = 3;
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -40,6 +43,10 @@ public class Business {
 
   @JdbcTypeCode(SqlTypes.JSON)
   private WidgetSettings widgetSettings;
+
+  /** Raw JSON, e.g. {"autoAckMinutes": 3} (T41). Read through {@link #autoAckMinutes()}. */
+  @JdbcTypeCode(SqlTypes.JSON)
+  private Map<String, Object> handoffSettings;
 
   /** Set by the database default. */
   @Column(insertable = false, updatable = false)
@@ -82,6 +89,12 @@ public class Business {
 
   public WidgetSettings getWidgetSettings() {
     return widgetSettings == null ? new WidgetSettings(null, null, null) : widgetSettings;
+  }
+
+  /** Minutes a handoff waits for staff before the automatic message. 3 when not set. */
+  public int autoAckMinutes() {
+    Object value = handoffSettings == null ? null : handoffSettings.get("autoAckMinutes");
+    return value instanceof Number number ? number.intValue() : DEFAULT_AUTO_ACK_MINUTES;
   }
 
   public Instant getCreatedAt() {

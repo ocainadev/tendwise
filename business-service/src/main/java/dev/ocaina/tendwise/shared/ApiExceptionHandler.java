@@ -1,5 +1,6 @@
 package dev.ocaina.tendwise.shared;
 
+import dev.ocaina.tendwise.conversation.ConversationConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -17,6 +18,19 @@ public class ApiExceptionHandler {
     ProblemDetail problem =
         ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
     problem.setTitle(exception.getTitle());
+    return problem;
+  }
+
+  /** Someone changed the conversation's state first: 409 with the state it is in now. */
+  @ExceptionHandler(ConversationConflictException.class)
+  ProblemDetail handleConversationConflict(ConversationConflictException exception) {
+    ProblemDetail problem =
+        ProblemDetail.forStatusAndDetail(
+            HttpStatus.CONFLICT,
+            "The conversation is in state " + exception.getCurrentState() + ".");
+    problem.setTitle("Conversation state changed");
+    problem.setProperty("state", exception.getCurrentState());
+    problem.setProperty("assigneeUserId", exception.getCurrentAssigneeUserId());
     return problem;
   }
 }
