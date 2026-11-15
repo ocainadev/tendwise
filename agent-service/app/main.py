@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from app.agent.service import create_agent_service
 from app.api import admin, chat, health, internal
 from app.api.rate_limit import create_rate_limiter
+from app.auth.jwks import JwksCache
 from app.core.config import Settings, get_settings
 from app.core.db import CONNECT_TIMEOUT_SECONDS
 from app.core.migrations import apply_migrations
@@ -108,6 +109,8 @@ async def startup(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     ingest_documents(settings)
     build_chat_services(app, settings)
+    # Fetches nothing yet: the keys are read on the first panel request.
+    app.state.jwks_cache = JwksCache(settings.auth_jwks_url)
     yield
 
 
