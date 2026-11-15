@@ -2,6 +2,7 @@ package dev.ocaina.tendwise.conversation;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -44,4 +45,31 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
           """,
       nativeQuery = true)
   boolean existsAutoAck(UUID conversationId, Long businessId, Long handoffId);
+
+  /** One message of the conversation (the AI_REPLY job reads the customer message it answers). */
+  Optional<Message> findByIdAndConversationIdAndBusinessId(
+      Long id, UUID conversationId, Long businessId);
+
+  /** Id of the conversation's latest AI message, or null when the AI has not answered yet. */
+  @Query(
+      """
+      SELECT MAX(m.id) FROM Message m
+      WHERE m.conversationId = :conversationId AND m.businessId = :businessId
+        AND m.sender = dev.ocaina.tendwise.conversation.MessageSender.AI
+      """)
+  Long findLastAiMessageId(UUID conversationId, Long businessId);
+
+  /**
+   * What staff told the customer after a message id, oldest first: HUMAN messages the customer saw
+   * (internal notes are left out). The AI_REPLY job sends them to agent-service (T39).
+   */
+  @Query(
+      """
+      SELECT m FROM Message m
+      WHERE m.conversationId = :conversationId AND m.businessId = :businessId
+        AND m.sender = dev.ocaina.tendwise.conversation.MessageSender.HUMAN
+        AND m.internal = false AND m.id > :afterId
+      ORDER BY m.id ASC
+      """)
+  List<Message> findStaffMessagesAfter(UUID conversationId, Long businessId, long afterId);
 }

@@ -99,7 +99,7 @@ Each table is created by the task in the "Planned" column (its Flyway migration,
 | `plans` | id, code (unique), name, price_cents, currency, conversation_limit, seat_limit, features (jsonb) | T62 | Editable by the operator. `features`: `{"whatsapp": bool, "model": "<LLM model id>"}` |
 | `conversations` | id (UUID), business_id, channel (`WEB`, `WHATSAPP`), state (`AI`, `WAITING`, `HUMAN`, `RESOLVED`), assignee_user_id, language, customer_ref, customer_contact (encrypted, null), contact_consent_at, token_hash, last_message_at, unread_by_staff, created_at, resolved_at, version | T36 | See [Conversations and message routing](#conversations-and-message-routing) |
 | `messages` | id, conversation_id, business_id, sender (`CUSTOMER`, `AI`, `HUMAN`, `SYSTEM`), author_user_id, body, internal (bool), metadata (jsonb), created_at | T36 | `internal = true` is never sent to the customer |
-| `jobs` | id, type, payload (jsonb), status (`PENDING`, `RUNNING`, `DONE`, `FAILED`), attempts, run_at, locked_at, last_error, created_at | T36 | Worker in T39. See [Jobs](#jobs) |
+| `jobs` | id, type, payload (jsonb), status (`PENDING`, `RUNNING`, `DONE`, `FAILED`), attempts, run_at, locked_at, last_error, created_at | T36 | Worker T39. See [Jobs](#jobs) |
 | `canned_replies` | id, business_id, shortcut, title, body, created_by | T48 | `shortcut` unique per business (typed after `/`) |
 | `api_keys` | id, business_id, name, prefix, key_hash, scopes, last_used_at, revoked_at | T57 | For the orders integration. The full key is shown once on creation; only the hash is stored |
 | `usage_daily` | business_id, day, conversations, customer_messages, ai_messages, human_messages, handoffs, resolved_by_ai, llm_cost_usd | T59 | PK (business_id, day). Filled by the nightly `USAGE_ROLLUP` job; re-running a day replaces its row |
@@ -218,7 +218,7 @@ One field, `core.conversations.state`, decides who answers.
 - **HUMAN:** only the assignee answers; the AI is silent.
 - **Back to AI:** the next `AI_REPLY` sends the messages exchanged with staff since the last AI turn (`staff_messages`), so the AI knows what a person said.
 - **Every transition** is one conditional `UPDATE conversations SET state = …, version = version + 1 WHERE id = … AND business_id = … AND state = <expected>` in a transaction that also writes a `SYSTEM` message and sends the event. If no row is updated, someone else changed the state first: the API answers `409 Conflict` with the current state and assignee ("Maria already took this conversation").
-- `SYSTEM` messages describe what happened (`metadata.event`: `HANDOFF_CREATED`, `TAKEN_OVER`, `ASSIGNED`, `RELEASED`, `RESOLVED`, `REOPENED`, `AUTO_ACK`, `AI_FAILED`). The ones the customer should see ("Maria joined", "back to the assistant", the auto-ack) have `internal = false`; staff-only ones (the handoff reason, assignments) have `internal = true`.
+- `SYSTEM` messages describe what happened (`metadata.event`: `HANDOFF_CREATED`, `TAKEN_OVER`, `ASSIGNED`, `RELEASED`, `RESOLVED`, `REOPENED`, `AUTO_ACK`, `AI_FAILED`). The ones the customer should see ("Maria joined", "back to the assistant", the auto-ack, `AI_FAILED` "a team member will reply here") have `internal = false`; staff-only ones (the handoff reason, assignments) have `internal = true`.
 
 ### Conversation columns
 
@@ -242,10 +242,13 @@ In states `WAITING` and `HUMAN` step 1 stores the message and notifies staff, wi
 ### Jobs
 
 - `core.jobs` is the queue of business-service (T36, worker T39); `agent.jobs` is agent-service's own (T50). Both work the same way.
-- A worker polls every second for `status = 'PENDING' AND run_at <= now()` with `FOR UPDATE SKIP LOCKED`, sets `RUNNING` and `locked_at`, runs the job, and sets `DONE`, or `PENDING` with a later `run_at` (backoff) and `last_error` (error type only, never message text), or `FAILED` after the last attempt.
-- A job left `RUNNING` with an old `locked_at` (the instance died) goes back to `PENDING`.
-- `AI_REPLY` jobs of one conversation run one at a time, in order: the worker skips a job whose conversation already has a `RUNNING` `AI_REPLY`.
-- The `AI_REPLY` worker (T39) skips a job when `ConversationService.isAiAnswering` is false (state not `AI`), and runs `AUTO_ACK` jobs through `AutoAckJobHandler.handle`.
+- A worker (`JobWorker`, T39) polls every second for `status = 'PENDING' AND run_at <= now()` with `FOR UPDATE SKIP LOCKED`, sets `RUNNING`, `locked_at` and `attempts + 1` and commits, runs the job outside any transaction (the agent call never holds a connection or a lock), and then sets `DONE`, or `PENDING` with a later `run_at` (backoff: 5 s, then doubling) and `last_error` (error type only, e.g. `ServiceUnavailable 503`, never message text or a response body), or `FAILED` after the last attempt (3 in total). Each instance runs up to 4 jobs at a time, each on a virtual thread.
+- A job left `RUNNING` with a `locked_at` older than 5 minutes (the instance died) goes back to `PENDING`; its attempt still counts.
+- `AI_REPLY` jobs of one conversation run one at a time, in order: the worker skips a job whose conversation already has a `RUNNING` `AI_REPLY` or an older `PENDING` one (for example waiting for its retry).
+- **Handlers:** each type has one `JobHandler` bean (`type()`, `run(job)`, and an optional `onFinalFailure(job)` that runs once before the job becomes `FAILED`). Returning normally means `DONE`, also when there was nothing to do; an exception is a failed attempt. A handler must be safe to run twice. `AiReplyJobHandler` (T39) skips a job when `ConversationService.isAiAnswering` is false (state not `AI`) and, on final failure, calls `ConversationService.failAiReply` (`AI_FAILED`, `AI` → `WAITING`; nothing when the state already changed). `AutoAckJobHandler` (T41) runs `AUTO_ACK`.
+- **Staff messages:** an `AI_REPLY` sends the `HUMAN` messages the customer saw (not internal notes) since the conversation's last `AI` message, oldest first, with the author's name (at most the last 50, bodies cut at 4,000 characters).
+- **Configuration** (`tendwise.jobs.*` in `application.yml`): `worker-enabled` (`JOB_WORKER_ENABLED`, default `true`; tests turn it off and call the worker directly), `poll-interval`, `max-attempts`, `retry-delay`, `stale-after`, `max-concurrent`. agent-service is reached at `AGENT_SERVICE_URL` (compose: `http://agent-service:8000`) with a 60-second read timeout.
+- **Events (T40):** `AiReplyJobHandler` marks where `ai.typing` is sent and where the stored `AI` or `AI_FAILED` message is published after its commit.
 - Types: `AI_REPLY` (T39), `AUTO_ACK` (T41), `SEND_EMAIL` (T48, real provider T69), `USAGE_ROLLUP` (T59). A new type is added by the task that needs it and listed here.
 
 ## Agent graph
@@ -526,7 +529,7 @@ Details of the T31 routes (package `dev.ocaina.tendwise.auth`, Spring Security w
 
 #### Internal API (planned)
 
-agent-service, header `X-Api-Key` with the shared service key (`BUSINESS_SERVICE_API_KEY`, already set in both services; compared in constant time). nginx never routes `/internal/`.
+agent-service, header `X-Api-Key` with the shared service key (`BUSINESS_SERVICE_API_KEY`, already set in both services; compared in constant time). business-service calls it at `AGENT_SERVICE_URL` (T39). nginx never routes `/internal/`.
 
 | Method | Route | Description | Planned |
 |---|---|---|---|
