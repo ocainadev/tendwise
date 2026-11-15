@@ -128,6 +128,7 @@ Parallel Java PRs must not pick the same Flyway version:
 
 - **T30** adds `V3__users.sql` (`users`, `memberships`, `refresh_tokens`). The platform admin is created at startup from environment variables, together with a demo owner and agent per demo business; no migration contains a password or a password hash.
 - **T36** adds `V4__conversations.sql` (`conversations`, `messages`, `jobs`).
+- **T38** adds `V5__widget.sql` (`businesses.publishable_key`, `businesses.widget_settings`). The demo businesses get `pk_demo_joes_pizza` and `pk_demo_denim_corner` and allow `http://localhost:5173` and `http://127.0.0.1:5173`.
 - Every later Java task takes **the next free number at the time it starts** (`V5__…`, `V6__…`, …). If another PR with the same number lands first, rebase and renumber before merging. Never edit a migration that is already on main.
 
 ### Schema `agent` (owned by agent-service)
@@ -418,6 +419,7 @@ business-service. To start, the business's **publishable key** (public by design
 | POST | `/public/v1/conversations/{id}/satisfaction` | Body: `rating` (`UP`, `DOWN`), `comment` (optional). One per conversation | T61 |
 
 - Message fields: `id`, `sender`, `authorName` (first name of the staff member, `HUMAN` only), `body`, `createdAt`. No `metadata`, no user ids.
+- **As built (T38):** package `dev.ocaina.tendwise.publicapi`. `allowedDomains` holds origins (`https://shop.example.com`), compared with the `Origin` header (case and a trailing `/` ignored). CORS preflight is open for `/public/v1/**` (no credentials); the per-business check answers `403` (problem `Origin not allowed`) because the business is only known from the key or the token. A request without `Origin` (not from another website) is let through; the key, token and limits still apply. A missing, malformed or wrong token, an unknown id and another business's conversation all give the same `404`. Limits (`tendwise.public-api.*`): 20 customer messages per conversation in any 10 minutes (counted in `core.messages` under the conversation's row lock), 30 POSTs per IP per minute (in memory; the IP comes from `X-Forwarded-For` of a private-network proxy). History returns at most 100 messages per call; the widget asks again with the last id. The greeting is a fixed text per language until T53 (`assistant_settings.greeting`); it is not stored as a message.
 - A suspended business (T62) answers the start call with a "temporarily unavailable" problem the widget shows as is.
 - The widget reads the SSE stream with `fetch` and the `Authorization` header instead of `EventSource`, because it runs in an iframe on a third-party site.
 
