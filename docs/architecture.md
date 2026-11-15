@@ -371,7 +371,7 @@ Prefix `/api/v1`. Every call requires the `X-Api-Key` header.
 
 Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagger-ui` (public; use "Authorize" to send the key).
 
-- Missing or wrong `X-Api-Key` on `/api/**` → 401. The key comes from `BUSINESS_SERVICE_API_KEY`; the service does not start without it.
+- Missing or wrong `X-Api-Key` on a service route (`/api/v1/businesses/**`, `/api/v1/orders/**`, `/api/v1/handoffs/**`) → 401. The key comes from `BUSINESS_SERVICE_API_KEY`; the service does not start without it.
 - `businessSlug` on the order status and handoff routes keeps tenant isolation: the agent can only read and change data of the business it is talking for.
 - Handoff responses: `id`, `conversationId`, `reason`, `summary`, `status`, `createdAt`, `updatedAt`.
 
@@ -382,7 +382,7 @@ Planned changes to these service routes (they stay at the same paths, for the ag
 - **Temporary rule until T42:** when the conversation is not in `core.conversations` for that business (the demo chat still creates its conversations in agent-service only), the handoff is created as in v0.1.0, with no state change and no auto-ack, so the demo's handoff keeps working. A conversation of another business is never changed. `HandoffConversationTest` pins this rule.
 - `POST /handoffs` (planned: T42): once the demo chat uses the public API, an unknown conversation answers 404 (same as an unknown business), and the tests that pin the temporary rule change with it.
 - `PATCH /handoffs/{id}` is removed in T44: from then on a handoff's status follows its conversation, and no caller uses the route (the agent only creates handoffs).
-- The `X-Api-Key` filter covers every `/api/**` path today. T32 narrows it to the service routes (`/api/v1/businesses/**`, `/api/v1/orders/**`, `/api/v1/handoffs/**`), because `/api/v1/panel/**` and `/api/v1/admin/**` use the session cookie instead.
+- **As built (T32):** the `X-Api-Key` filter covers only the service routes (`/api/v1/businesses/**`, `/api/v1/orders/**`, `/api/v1/handoffs/**`; `ApiKeyFilter.SERVICE_ROUTES`, also used by `SecurityConfig`). A session cookie never opens them, and the key opens nothing else: `/api/v1/panel/**` and `/api/v1/admin/**` use the session cookie. Any other `/api/` path is denied.
 
 ### agent-service
 
@@ -464,6 +464,7 @@ agent-service (verifies the same JWT with the JWKS, and the CSRF header):
 | GET | `/api/v1/panel/{slug}/knowledge-gaps` | OWNER | T58 |
 | POST | `/api/v1/panel/{slug}/playground` (chat with `channel = playground`, left out of the metrics) | OWNER | T51 |
 
+- **As built (T32):** package `dev.ocaina.tendwise.panel`. Spring Security requires a valid access token on `/api/v1/panel/**` (401 otherwise). Then `PanelGuard`, a Spring MVC interceptor, runs before the controller: it takes the slug from the path, looks for it in the token's `memberships`, and loads the business by slug; a missing membership or business gives the same `404` problem (`Business not found`). A route or controller marked `@OwnerOnly` answers `403` to an `AGENT`; unmarked routes are open to every member. The controller declares a `CurrentMembership` parameter (`businessId`, `slug`, `role`) and uses its `businessId` in every query. Roles come from the token, so a role change or removal takes effect within the token's 15 minutes. `PanelTenantIsolationTest.ROUTES` lists every panel route; each panel task appends its routes there, and the test fails if a mapped panel route is missing.
 - **Deferred:** the orders integration API that a client's own system calls with a business API key (`api_keys`, scope per key) is proposed in T57; only the panel routes above are fixed.
 - Support mode (T64) can call every `GET` above and nothing else.
 - Dashboard and overview numbers use the metric definitions in [panels-plan.md, section 10](panels-plan.md#10-metrics-definitions).
@@ -471,6 +472,8 @@ agent-service (verifies the same JWT with the JWKS, and the CSRF header):
 #### Admin API (planned)
 
 business-service, `platform_role = ADMIN` (403 for anyone else; from T68 also a verified TOTP).
+
+**As built (T32):** `/api/v1/admin/**` requires a valid access token (401) whose `platformRole` is `ADMIN` (403 otherwise; the token filter gives the operator `ROLE_ADMIN`). No admin endpoints exist yet.
 
 | Method | Route | Planned |
 |---|---|---|
@@ -518,8 +521,8 @@ Details of the T31 routes (package `dev.ocaina.tendwise.auth`, Spring Security w
 - **Lockout:** the 5th consecutive failure sets `locked_until = now + 15 min` and resets `failed_login_count`, so after the lock the user has 5 new tries. The user row is locked (`SELECT … FOR UPDATE`) during a login, so parallel attempts are all counted.
 - **Refresh rotation:** the old token gets `revoked_at` and a new one (same `family_id`, 30 days from now) is stored. The row is locked during a refresh, so two refreshes with one token run in turn and the second counts as a reuse. The web app must therefore send one refresh at a time.
 - **Logout** (`204`) revokes the token's whole family and deletes the cookies; an unknown or missing refresh token still gets `204`.
-- **CSRF:** `POST`/`PUT`/`PATCH`/`DELETE` under `/auth/` need `X-CSRF-Token` equal to the `tendwise_csrf` cookie, or `403`. Exempt: `/auth/login` (no session yet). T32 adds `/api/v1/panel/` and `/api/v1/admin/`. The `X-Api-Key` service routes need no CSRF header (no cookies).
-- **Other routes:** `/api/**` is left to `ApiKeyFilter` exactly as before, Swagger stays public, `/auth/me` needs a valid access token (`401` otherwise), and any route not listed in `SecurityConfig` is denied.
+- **CSRF:** `POST`/`PUT`/`PATCH`/`DELETE` under `/auth/`, `/api/v1/panel/` and `/api/v1/admin/` (added in T32) need `X-CSRF-Token` equal to the `tendwise_csrf` cookie, or `403`. Exempt: `/auth/login` (no session yet). The `X-Api-Key` service routes need no CSRF header (no cookies).
+- **Other routes:** the service routes are left to `ApiKeyFilter` (narrowed in T32), Swagger stays public, `/auth/me` needs a valid access token (`401` otherwise), and any route not listed in `SecurityConfig` is denied.
 
 #### Internal API (planned)
 
@@ -552,7 +555,7 @@ Panel login and tokens: [ADR 0003](adr/0003-panel-authentication.md).
 - **Login (T31, done):** email and password (Argon2id). After 5 consecutive failed logins the account is locked for 15 minutes (`users.failed_login_count`, `users.locked_until`); a successful login resets the count. Error messages are generic. TOTP 2FA is mandatory for platform admins and optional for owners (T68).
 - **Tokens (T31, done):** the access token is a JWT signed with Ed25519, valid 15 minutes, with the user id, platform role and memberships, in an `HttpOnly; Secure; SameSite=Lax` cookie. The refresh token (30 days) is rotated on every use, and a reused one revokes the whole family. agent-service verifies the access token with `GET /auth/jwks.json`, cached (T35). Disabling a user revokes their refresh tokens, so access ends within 15 minutes.
 - **CSRF (T31, T35):** with cookie auth, every state-changing request (`POST`, `PUT`, `PATCH`, `DELETE`) also needs an `X-CSRF-Token` header equal to the non-HttpOnly CSRF cookie (double-submit). Both services check it.
-- **Tenant isolation (T32):** the business comes from the URL slug checked against the token's memberships, never from the body. Every repository method takes `businessId`. A shared test suite calls every panel route as a user of another business and expects 404. Optionally later: PostgreSQL row-level security as a second line of defence.
+- **Tenant isolation (T32, done):** the business comes from the URL slug checked against the token's memberships, never from the body. Every repository method takes `businessId`. A shared test suite calls every panel route as a user of another business and expects 404. Optionally later: PostgreSQL row-level security as a second line of defence.
 - **Support mode (T64):** a separate, read-only, 30-minute token; a banner on every page; an audit entry when it starts and for each page viewed.
 - **Personal data (LGPD/GDPR):** staff see messages (they have to answer them), but logs never contain message text, phone numbers or emails. The customer's contact is stored only with consent, encrypted at rest. The retention job also purges `core.messages` and `core.conversations`, and an owner can export or delete one customer's conversations (T70). The audit log stores a hash of the IP, not the IP.
 - **Public endpoints (T38):** allowed domains per business (CORS and `frame-ancestors`), rate limits, message size limits. The per-conversation limit is counted from `core.messages` in the database, so it holds across instances (this replaces agent-service's in-memory limit for customers). The per-IP limit is in memory per instance; a shared store is proposed only when more than one instance runs.
