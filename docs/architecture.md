@@ -64,6 +64,7 @@ Source of truth for the data model and API contracts. Coding agents must not add
 - **The panels:** one React app in `web` with three areas: `/app/:slug/*` business panel, `/admin/*` platform admin, `/demo` (the page that embeds the chat widget). The widget is a separate small bundle (`widget/`, plain TypeScript) loaded in an iframe (planned: T56).
 - agent-service still never reads the `core` schema, and business-service never reads the `agent` schema: usage numbers come through `GET /internal/v1/usage` (planned: T59).
 - Until T42, the browser still calls agent-service `POST /api/v1/chat` through nginx, as in v0.1.0.
+- **Panel shell (T33, done):** React Router in `web`: `/` redirects to `/demo` (the v0.1.0 chat), `/login`, `/app` (business chooser), `/app/:slug/*` (sidebar with the business switcher and the menu items the role may open) and `/admin/*` (platform admins only). `src/api/http.ts` adds the `X-CSRF-Token` header to state-changing requests and, on a `401`, sends one shared `POST /auth/refresh` and retries the request once. The logged-in user is the `/auth/me` entry in the TanStack Query cache. Texts come from react-i18next (`src/i18n/pt-BR.ts`; `en` and `es` are added as files of the same shape).
 
 ## Data model
 
@@ -539,7 +540,7 @@ agent-service, header `X-Api-Key` with the shared service key (`BUSINESS_SERVICE
 
 ### nginx routing (planned: T42)
 
-Today nginx sends every `/api/` path to agent-service. From T42:
+Since T33, nginx (and the Vite dev proxy) sends `/auth/`, `/api/v1/panel/` and `/api/v1/admin/` to business-service and every other `/api/` path to agent-service, so the demo chat keeps working. From T42:
 
 | Path | Goes to |
 |---|---|

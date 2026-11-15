@@ -43,7 +43,7 @@ flowchart LR
 |---|---|---|
 | `business-service/` | Java 21, Spring Boot 3, Flyway | Businesses, catalog, orders, handoffs (REST API with an API key) |
 | `agent-service/` | Python 3.12, FastAPI, LangGraph, fastembed | Agent graph, RAG, guardrails, turn logging, evals |
-| `web/` | React, Vite, TypeScript | Chat UI with a business picker, sources and the handoff notice |
+| `web/` | React, Vite, TypeScript | Demo chat (`/demo`) with a business picker, sources and the handoff notice; panel login (`/login`) and the shell of the business and admin panels |
 | `db` | PostgreSQL 16 + pgvector | One database, `core` and `agent` schemas |
 | `data/businesses/<slug>/` | Markdown | Each business's catalog, FAQ and policies, indexed for RAG |
 
@@ -251,11 +251,13 @@ cd agent-service && uv run ruff check . && uv run ruff format --check . && uv ru
 
 ### web
 
-The chat UI calls agent-service through a relative `/api` URL: Vite's dev proxy or nginx forwards it, so no CORS is needed. With agent-service running on port 8000 (needs Node 24):
+The app calls its APIs through relative URLs: Vite's dev proxy (or nginx in Docker) sends `/auth/`, `/api/v1/panel/` and `/api/v1/admin/` to business-service (port 8080) and the demo chat's `/api` to agent-service (port 8000), so no CORS is needed and the session cookies just work. With both services running (needs Node 24):
 
 ```bash
 cd web && npm install && npm run dev
 ```
+
+The panel login is at `/login` (port 5173 in Docker, the URL Vite prints in development). With `DEMO_USERS_PASSWORD` set, log in as `owner@joes-pizza.test` or `agent@joes-pizza.test` to see the menu change with the role. The panel areas are placeholders ("em breve") until their tasks land.
 
 Lint and tests (`fetch` is mocked, so no backend is needed):
 

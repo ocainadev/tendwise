@@ -77,8 +77,10 @@ services:
   web:
     build: ./web
     container_name: tendwise-web
+    # nginx proxies to both services (see web/nginx.conf).
     depends_on:
       - agent-service
+      - business-service
     ports:
       - "5173:80"
 
