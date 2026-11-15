@@ -22,6 +22,12 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
   Optional<Conversation> findByIdAndBusinessId(UUID id, Long businessId);
 
   /**
+   * The widget's lookup (T38): the conversation token is its only credential, so a wrong token and
+   * an unknown id both find nothing. The business comes from the row found, never from the request.
+   */
+  Optional<Conversation> findByIdAndTokenHash(UUID id, String tokenHash);
+
+  /**
    * Reads the conversation and locks its row until the transaction ends (SELECT … FOR UPDATE), so a
    * new message and a state change of the same conversation never run at the same time.
    */

@@ -35,6 +35,9 @@ spring:
 
 server:
   port: 8080
+  # Behind nginx, take the client IP from X-Forwarded-For (needed by the per-IP rate limit).
+  # Tomcat only trusts that header from private-network proxies, so a client cannot fake it.
+  forward-headers-strategy: native
 
 springdoc:
   swagger-ui:
@@ -57,3 +60,11 @@ tendwise:
     jwt-private-key: ${AUTH_JWT_PRIVATE_KEY:}
     # Secure flag on the session cookies. Turn it off only for plain http that is not localhost.
     cookie-secure: ${AUTH_COOKIE_SECURE:true}
+  # Public conversation API for the website chat widget (T38).
+  public-api:
+    # Customer messages per conversation in any window, counted in core.messages (all instances).
+    conversation-limit: 20
+    conversation-window: 10m
+    # Conversation starts and messages per IP in any window, in memory per instance.
+    ip-limit: 30
+    ip-window: 1m
