@@ -119,8 +119,8 @@ New columns on existing tables:
 - **`business_id` rule for the new tables:** every new table has `business_id` and every query filters by it, except `users`, `refresh_tokens` and `password_resets` (they belong to a user, who reaches businesses through `memberships`), `plans` (platform-wide) and `jobs` (one platform-wide queue; the business is inside `payload`).
 - Settings columns are jsonb in the database and validated DTOs (records) in Java; the API never accepts a key that is not listed above.
 - Encrypted columns (`users.totp_secret`, `conversations.customer_contact`) use AES-GCM with a key from the environment; the key is never in the repository.
-- After T36, `handoffs.conversation_id` is a `core.conversations.id` created by business-service. There is still no foreign key, because v0.1.0 handoffs point to conversations that exist only in the `agent` schema; T41 checks that the conversation exists and belongs to the business.
-- `handoffs.status` follows the conversation from T41/T44 (same transaction): `WAITING` → `OPEN`, `HUMAN` → `IN_PROGRESS`, `RESOLVED` or back to `AI` → `RESOLVED`.
+- After T36, `handoffs.conversation_id` is a `core.conversations.id` created by business-service. There is still no foreign key, because v0.1.0 handoffs point to conversations that exist only in the `agent` schema; T41 looks the conversation up in the business. Until T42, an id that is not there (a demo-chat conversation that lives only in agent-service) still gets a handoff, with no state change (see `POST /handoffs` below).
+- `handoffs.status` follows the conversation from T41 (same transaction, in `ConversationService`): `WAITING` → `OPEN`, `HUMAN` → `IN_PROGRESS`, `RESOLVED` or back to `AI` → `RESOLVED`. `PATCH /handoffs/{id}` can still set any status until T44 removes it.
 
 #### Migration numbers
 
@@ -129,6 +129,7 @@ Parallel Java PRs must not pick the same Flyway version:
 - **T30** adds `V3__users.sql` (`users`, `memberships`, `refresh_tokens`). The platform admin is created at startup from environment variables, together with a demo owner and agent per demo business; no migration contains a password or a password hash.
 - **T36** adds `V4__conversations.sql` (`conversations`, `messages`, `jobs`).
 - **T38** adds `V5__widget.sql` (`businesses.publishable_key`, `businesses.widget_settings`). The demo businesses get `pk_demo_joes_pizza` and `pk_demo_denim_corner` and allow `http://localhost:5173` and `http://127.0.0.1:5173`.
+- **T41** adds `V6__handoff_settings.sql` (`businesses.handoff_settings`, job type `AUTO_ACK`).
 - Every later Java task takes **the next free number at the time it starts** (`V5__…`, `V6__…`, …). If another PR with the same number lands first, rebase and renumber before merging. Never edit a migration that is already on main.
 
 ### Schema `agent` (owned by agent-service)
@@ -213,6 +214,7 @@ One field, `core.conversations.state`, decides who answers.
 
 - **AI:** each customer message enqueues an `AI_REPLY` job.
 - **WAITING:** the AI does not answer. Messages are stored, `unread_by_staff` grows and staff are notified. If nobody takes over within `handoff_settings.autoAckMinutes` (default 3), or the business is closed (`opening_hours`), the customer gets **one** automatic `SYSTEM` message (for example "Já avisei a equipe; respondemos a partir das 9h. Quer deixar um e-mail ou WhatsApp?"), sent by an `AUTO_ACK` job (T41).
+- **Auto-ack (T41):** creating the handoff queues one `AUTO_ACK` job with `run_at` = now when the business is closed, otherwise now + `autoAckMinutes`. When it runs, it sends nothing if the conversation is no longer `WAITING`, the handoff is no longer `OPEN`, or this handoff's auto-ack was already sent, so a retried job still sends one message. The message is `SYSTEM`, `internal = false`, with `metadata` `event: AUTO_ACK`, `handoffId`, `businessOpen` and, when closed, `opensAt` (ISO date-time in the business's time zone); the widget writes the customer-facing text from these fields in the conversation's language. Opening hours: an empty `opening_hours` (`{}`) means unknown and counts as always open; a day missing from a non-empty object is closed; a `close` at or before `open` ends on the next day.
 - **HUMAN:** only the assignee answers; the AI is silent.
 - **Back to AI:** the next `AI_REPLY` sends the messages exchanged with staff since the last AI turn (`staff_messages`), so the AI knows what a person said.
 - **Every transition** is one conditional `UPDATE conversations SET state = …, version = version + 1 WHERE id = … AND business_id = … AND state = <expected>` in a transaction that also writes a `SYSTEM` message and sends the event. If no row is updated, someone else changed the state first: the API answers `409 Conflict` with the current state and assignee ("Maria already took this conversation").
@@ -243,6 +245,7 @@ In states `WAITING` and `HUMAN` step 1 stores the message and notifies staff, wi
 - A worker polls every second for `status = 'PENDING' AND run_at <= now()` with `FOR UPDATE SKIP LOCKED`, sets `RUNNING` and `locked_at`, runs the job, and sets `DONE`, or `PENDING` with a later `run_at` (backoff) and `last_error` (error type only, never message text), or `FAILED` after the last attempt.
 - A job left `RUNNING` with an old `locked_at` (the instance died) goes back to `PENDING`.
 - `AI_REPLY` jobs of one conversation run one at a time, in order: the worker skips a job whose conversation already has a `RUNNING` `AI_REPLY`.
+- The `AI_REPLY` worker (T39) skips a job when `ConversationService.isAiAnswering` is false (state not `AI`), and runs `AUTO_ACK` jobs through `AutoAckJobHandler.handle`.
 - Types: `AI_REPLY` (T39), `AUTO_ACK` (T41), `SEND_EMAIL` (T48, real provider T69), `USAGE_ROLLUP` (T59). A new type is added by the task that needs it and listed here.
 
 ## Agent graph
@@ -362,7 +365,7 @@ Prefix `/api/v1`. Every call requires the `X-Api-Key` header.
 | GET | `/businesses/{slug}` | Business info: `slug`, `name`, `category`, `defaultLanguage`, `timezone`, `openingHours` (JSON object, e.g. `{"mon": [], "tue": [{"open": "11:00", "close": "22:00"}]}`). 404 if the business does not exist |
 | GET | `/businesses/{slug}/catalog` | Catalog items ordered by name: `id`, `name`, `description`, `price` (number, 2 decimals), `currency`, `available`, `kind` (`PRODUCT`, `SERVICE`). Unavailable items are included with `available: false`. 404 if the business does not exist |
 | GET | `/orders/{code}/status?businessSlug=joes-pizza&phoneLast4=1234` | Status, fulfilment and ETA (no customer data). Returns 404 if the business or code does not exist, the order belongs to another business, or the phone does not match, without telling the cases apart. 400 if `phoneLast4` is not 4 digits |
-| POST | `/handoffs` | Create handoff. Body: `businessSlug`, `conversationId` (UUID), `reason` (`COMPLAINT`, `HUMAN_REQUEST`, `NEGATIVE_SENTIMENT`, `LOW_CONFIDENCE`), `summary` (max 2000 chars). 201 with `Location: /api/v1/handoffs/{id}` and the handoff, status `OPEN`. 404 if the business does not exist, 400 if the body is invalid |
+| POST | `/handoffs` | Create handoff. Body: `businessSlug`, `conversationId` (UUID), `reason` (`COMPLAINT`, `HUMAN_REQUEST`, `NEGATIVE_SENTIMENT`, `LOW_CONFIDENCE`), `summary` (max 2000 chars). 201 with `Location: /api/v1/handoffs/{id}` and the handoff, status `OPEN`; the conversation moves to `WAITING` (T41). 404 if the business does not exist, 400 if the body is invalid, 409 if the conversation is not in `AI` (Problem Details with `state` and `assigneeUserId`) |
 | GET | `/handoffs?businessSlug=joes-pizza&status=OPEN` | Handoffs of the business, oldest first. `status` is optional (absent = all). 404 if the business does not exist, 400 on an unknown status |
 | PATCH | `/handoffs/{id}?businessSlug=joes-pizza` | Update status. Body: `status` (any of `OPEN`, `IN_PROGRESS`, `RESOLVED`; no state machine in the MVP). 200 with the handoff. 404 if the id does not exist or belongs to another business, without telling the cases apart |
 
@@ -375,7 +378,9 @@ Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagge
 Planned changes to these service routes (they stay at the same paths, for the agent's tools):
 
 - `GET /businesses/{slug}` adds `assistantSettings` (planned: T53, read by the agent from T54).
-- `POST /handoffs` (planned: T41): the conversation must exist in `core.conversations` for that business (404 otherwise, same as an unknown business), and the same transaction moves it to `WAITING` with a `SYSTEM` message.
+- `POST /handoffs` (T41): when the conversation exists in `core.conversations` for that business, the same transaction moves it to `WAITING` with a `SYSTEM` message (`HANDOFF_CREATED`, with `reason` and `handoffId`) and queues the `AUTO_ACK` job.
+- **Temporary rule until T42:** when the conversation is not in `core.conversations` for that business (the demo chat still creates its conversations in agent-service only), the handoff is created as in v0.1.0, with no state change and no auto-ack, so the demo's handoff keeps working. A conversation of another business is never changed. `HandoffConversationTest` pins this rule.
+- `POST /handoffs` (planned: T42): once the demo chat uses the public API, an unknown conversation answers 404 (same as an unknown business), and the tests that pin the temporary rule change with it.
 - `PATCH /handoffs/{id}` is removed in T44: from then on a handoff's status follows its conversation, and no caller uses the route (the agent only creates handoffs).
 - The `X-Api-Key` filter covers every `/api/**` path today. T32 narrows it to the service routes (`/api/v1/businesses/**`, `/api/v1/orders/**`, `/api/v1/handoffs/**`), because `/api/v1/panel/**` and `/api/v1/admin/**` use the session cookie instead.
 

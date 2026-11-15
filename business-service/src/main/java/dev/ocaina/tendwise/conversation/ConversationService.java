@@ -4,8 +4,12 @@ import static dev.ocaina.tendwise.conversation.ConversationState.AI;
 import static dev.ocaina.tendwise.conversation.ConversationState.HUMAN;
 import static dev.ocaina.tendwise.conversation.ConversationState.RESOLVED;
 import static dev.ocaina.tendwise.conversation.ConversationState.WAITING;
+import static dev.ocaina.tendwise.handoff.HandoffStatus.IN_PROGRESS;
+import static dev.ocaina.tendwise.handoff.HandoffStatus.OPEN;
 
 import dev.ocaina.tendwise.handoff.HandoffReason;
+import dev.ocaina.tendwise.handoff.HandoffRepository;
+import dev.ocaina.tendwise.handoff.HandoffStatus;
 import dev.ocaina.tendwise.job.Job;
 import dev.ocaina.tendwise.job.JobRepository;
 import dev.ocaina.tendwise.shared.NotFoundException;
@@ -24,6 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
  * in a transaction that also writes a SYSTEM message. If the UPDATE changes no row, someone else
  * changed the state first: {@link ConversationConflictException}, and nothing is written.
  *
+ * <p>A handoff's status follows its conversation in the same transaction (T41): WAITING = OPEN,
+ * HUMAN = IN_PROGRESS, RESOLVED or back to AI = RESOLVED.
+ *
  * <p>An unknown id and an id of another business both throw the same {@link NotFoundException}.
  */
 @Service
@@ -32,12 +39,17 @@ public class ConversationService {
   private final ConversationRepository conversations;
   private final MessageRepository messages;
   private final JobRepository jobs;
+  private final HandoffRepository handoffs;
 
   public ConversationService(
-      ConversationRepository conversations, MessageRepository messages, JobRepository jobs) {
+      ConversationRepository conversations,
+      MessageRepository messages,
+      JobRepository jobs,
+      HandoffRepository handoffs) {
     this.conversations = conversations;
     this.messages = messages;
     this.jobs = jobs;
+    this.handoffs = handoffs;
   }
 
   /** Starts a conversation in state AI. tokenHash is null for channels without a token. */
@@ -67,10 +79,30 @@ public class ConversationService {
     }
 
     Message message = save(Message.customer(conversationId, businessId, body), 1);
+    // Only the AI state queues an AI reply: in WAITING and HUMAN a person answers.
     if (state == AI) {
       jobs.save(Job.aiReply(businessId, conversationId, message.getId()));
     }
     return message;
+  }
+
+  /** True when the conversation exists in this business. */
+  @Transactional(readOnly = true)
+  public boolean exists(UUID conversationId, Long businessId) {
+    return conversations.findByIdAndBusinessId(conversationId, businessId).isPresent();
+  }
+
+  /**
+   * True while the AI is the one answering (state AI). Hook for the AI_REPLY worker (T39): a job
+   * queued before a handoff or a takeover is skipped when this is false, so the AI is never even
+   * asked while a person has the conversation. Unknown conversation: false.
+   */
+  @Transactional(readOnly = true)
+  public boolean isAiAnswering(UUID conversationId, Long businessId) {
+    return conversations
+        .findByIdAndBusinessId(conversationId, businessId)
+        .map(conversation -> conversation.getState() == AI)
+        .orElse(false);
   }
 
   /**
@@ -87,16 +119,20 @@ public class ConversationService {
     return Optional.of(save(Message.ai(conversationId, businessId, body, metadata), 0));
   }
 
-  /** AI → WAITING: a handoff was created. The AI stops answering until staff act. */
+  /**
+   * AI → WAITING: the handoff handoffId (already stored, status OPEN) was created. The AI stops
+   * answering until staff act.
+   */
   @Transactional
-  public Conversation handOff(UUID conversationId, Long businessId, HandoffReason reason) {
+  public Conversation handOff(
+      UUID conversationId, Long businessId, HandoffReason reason, Long handoffId) {
     int updated = conversations.changeState(conversationId, businessId, Set.of(AI), WAITING, null);
     return recordTransition(
         updated,
         conversationId,
         businessId,
         SystemEvent.HANDOFF_CREATED,
-        Map.of("reason", reason.name()));
+        Map.of("reason", reason.name(), "handoffId", handoffId));
   }
 
   /** WAITING → HUMAN: the staff member userId takes over. Two at once: only one wins. */
@@ -104,8 +140,11 @@ public class ConversationService {
   public Conversation takeOver(UUID conversationId, Long businessId, Long userId) {
     int updated =
         conversations.changeState(conversationId, businessId, Set.of(WAITING), HUMAN, userId);
-    return recordTransition(
-        updated, conversationId, businessId, SystemEvent.TAKEN_OVER, Map.of("userId", userId));
+    Conversation conversation =
+        recordTransition(
+            updated, conversationId, businessId, SystemEvent.TAKEN_OVER, Map.of("userId", userId));
+    syncHandoffs(conversationId, businessId, Set.of(OPEN), IN_PROGRESS);
+    return conversation;
   }
 
   /** WAITING or HUMAN → AI: staff hand the conversation back to the AI. */
@@ -113,8 +152,11 @@ public class ConversationService {
   public Conversation release(UUID conversationId, Long businessId, Long userId) {
     int updated =
         conversations.changeState(conversationId, businessId, Set.of(WAITING, HUMAN), AI, null);
-    return recordTransition(
-        updated, conversationId, businessId, SystemEvent.RELEASED, Map.of("userId", userId));
+    Conversation conversation =
+        recordTransition(
+            updated, conversationId, businessId, SystemEvent.RELEASED, Map.of("userId", userId));
+    syncHandoffs(conversationId, businessId, Set.of(OPEN, IN_PROGRESS), HandoffStatus.RESOLVED);
+    return conversation;
   }
 
   /** AI, WAITING or HUMAN → RESOLVED: staff close the conversation. */
@@ -123,8 +165,38 @@ public class ConversationService {
     int updated =
         conversations.resolve(
             conversationId, businessId, Set.of(AI, WAITING, HUMAN), Conversation.now());
-    return recordTransition(
-        updated, conversationId, businessId, SystemEvent.RESOLVED, Map.of("userId", userId));
+    Conversation conversation =
+        recordTransition(
+            updated, conversationId, businessId, SystemEvent.RESOLVED, Map.of("userId", userId));
+    syncHandoffs(conversationId, businessId, Set.of(OPEN, IN_PROGRESS), HandoffStatus.RESOLVED);
+    return conversation;
+  }
+
+  /**
+   * Stores the one automatic message of handoff handoffId (T41). Empty, and nothing is written,
+   * when the conversation is no longer WAITING (staff took over, released or resolved it) or this
+   * handoff's auto-ack was already sent. details: businessOpen and opensAt, chosen by the caller.
+   */
+  @Transactional
+  public Optional<Message> addAutoAck(
+      UUID conversationId, Long businessId, Long handoffId, Map<String, Object> details) {
+    Optional<Conversation> conversation = conversations.findForUpdate(conversationId, businessId);
+    if (conversation.isEmpty()
+        || conversation.get().getState() != WAITING
+        || messages.existsAutoAck(conversationId, businessId, handoffId)) {
+      return Optional.empty();
+    }
+    Map<String, Object> metadata = new HashMap<>(details);
+    metadata.put("event", SystemEvent.AUTO_ACK.name());
+    metadata.put("handoffId", handoffId);
+    return Optional.of(
+        save(Message.system(conversationId, businessId, SystemEvent.AUTO_ACK, metadata), 0));
+  }
+
+  /** Moves the conversation's handoffs along with the state that was just recorded. */
+  private void syncHandoffs(
+      UUID conversationId, Long businessId, Set<HandoffStatus> from, HandoffStatus to) {
+    handoffs.changeStatusOfConversation(conversationId, businessId, from, to, Conversation.now());
   }
 
   /**

@@ -53,6 +53,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class PublicConversationApiTest {
 
+  /** handOff only records the handoff id in the SYSTEM message; these tests need no handoff row. */
+  private static final long ANY_HANDOFF_ID = 1L;
+
   private static final String JOES_KEY = "pk_demo_joes_pizza";
   private static final String DENIM_KEY = "pk_demo_denim_corner";
   private static final String DEMO_ORIGIN = "http://localhost:5173";
@@ -165,7 +168,7 @@ class PublicConversationApiTest {
   void sendWhileWaitingForStaffQueuesNoJob() throws Exception {
     Started started = startConversation(JOES_KEY);
     conversationService.handOff(
-        started.id(), businessId("joes-pizza"), HandoffReason.HUMAN_REQUEST);
+        started.id(), businessId("joes-pizza"), HandoffReason.HUMAN_REQUEST, ANY_HANDOFF_ID);
 
     send(started.id(), started.token(), "Anyone there?").andExpect(status().isAccepted());
 
@@ -180,7 +183,8 @@ class PublicConversationApiTest {
         jdbc.queryForObject(
             "INSERT INTO core.users (email, password_hash, name) VALUES ('maria@joes-pizza.test', 'x', 'Maria Silva') RETURNING id",
             Long.class);
-    conversationService.handOff(started.id(), businessId, HandoffReason.HUMAN_REQUEST); // internal
+    conversationService.handOff(
+        started.id(), businessId, HandoffReason.HUMAN_REQUEST, ANY_HANDOFF_ID); // internal
     conversationService.takeOver(started.id(), businessId, userId); // visible
     jdbc.update(
         "INSERT INTO core.messages (conversation_id, business_id, sender, author_user_id, body, created_at)"

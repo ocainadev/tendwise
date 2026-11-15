@@ -42,6 +42,9 @@ class ConversationServiceTest {
 
   private static final long STAFF_ID = 7L;
 
+  /** Handoff ids are not checked by the state machine (no foreign key), so any id works here. */
+  private static final long HANDOFF_ID = 42L;
+
   @Autowired private ConversationService service;
   @Autowired private ConversationRepository conversations;
   @Autowired private MessageRepository messages;
@@ -165,7 +168,7 @@ class ConversationServiceTest {
     Conversation conversation = start();
 
     Conversation result =
-        service.handOff(conversation.getId(), businessId, HandoffReason.HUMAN_REQUEST);
+        service.handOff(conversation.getId(), businessId, HandoffReason.HUMAN_REQUEST, HANDOFF_ID);
 
     assertThat(result.getState()).isEqualTo(WAITING);
     assertThat(result.getVersion()).isEqualTo(1);
@@ -174,7 +177,8 @@ class ConversationServiceTest {
     assertThat(system.isInternal()).isTrue();
     assertThat(system.getMetadata())
         .containsEntry("event", "HANDOFF_CREATED")
-        .containsEntry("reason", "HUMAN_REQUEST");
+        .containsEntry("reason", "HUMAN_REQUEST")
+        .containsEntry("handoffId", (int) HANDOFF_ID);
   }
 
   @Test
@@ -222,9 +226,12 @@ class ConversationServiceTest {
 
   @Test
   void invalidTransitionsAreRejectedAndWriteNothing() {
-    assertRejected(WAITING, id -> service.handOff(id, businessId, HandoffReason.COMPLAINT));
-    assertRejected(HUMAN, id -> service.handOff(id, businessId, HandoffReason.COMPLAINT));
-    assertRejected(RESOLVED, id -> service.handOff(id, businessId, HandoffReason.COMPLAINT));
+    assertRejected(
+        WAITING, id -> service.handOff(id, businessId, HandoffReason.COMPLAINT, HANDOFF_ID));
+    assertRejected(
+        HUMAN, id -> service.handOff(id, businessId, HandoffReason.COMPLAINT, HANDOFF_ID));
+    assertRejected(
+        RESOLVED, id -> service.handOff(id, businessId, HandoffReason.COMPLAINT, HANDOFF_ID));
     assertRejected(AI, id -> service.takeOver(id, businessId, STAFF_ID));
     assertRejected(HUMAN, id -> service.takeOver(id, businessId, 99L));
     assertRejected(RESOLVED, id -> service.takeOver(id, businessId, STAFF_ID));
@@ -287,7 +294,8 @@ class ConversationServiceTest {
         .isInstanceOf(NotFoundException.class);
     assertThatThrownBy(() -> service.resolve(id, otherBusinessId, STAFF_ID))
         .isInstanceOf(NotFoundException.class);
-    assertThatThrownBy(() -> service.handOff(id, otherBusinessId, HandoffReason.COMPLAINT))
+    assertThatThrownBy(
+            () -> service.handOff(id, otherBusinessId, HandoffReason.COMPLAINT, HANDOFF_ID))
         .isInstanceOf(NotFoundException.class);
 
     assertThat(conversations.findByIdAndBusinessId(id, otherBusinessId)).isEmpty();
@@ -328,7 +336,7 @@ class ConversationServiceTest {
   private Conversation inState(ConversationState state) {
     UUID id = start().getId();
     if (state == WAITING || state == HUMAN) {
-      service.handOff(id, businessId, HandoffReason.HUMAN_REQUEST);
+      service.handOff(id, businessId, HandoffReason.HUMAN_REQUEST, HANDOFF_ID);
     }
     if (state == HUMAN) {
       service.takeOver(id, businessId, STAFF_ID);
