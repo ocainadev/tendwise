@@ -2,6 +2,7 @@ package dev.ocaina.tendwise.auth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.ocaina.tendwise.publicapi.PublicApiCors;
+import dev.ocaina.tendwise.shared.ApiKeyFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -13,8 +14,14 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 /**
  * Spring Security setup for the session cookies (ADR 0003).
  *
- * <p>The service routes (/api/**) are left to ApiKeyFilter, which runs after this chain, exactly as
- * before. T32 narrows that filter and adds the panel and admin routes here.
+ * <p>Each family of routes has one kind of credential (docs/architecture.md):
+ *
+ * <ul>
+ *   <li>Panel and admin routes: the access token cookie. A panel route then goes through PanelGuard
+ *       (business slug and role) before its controller.
+ *   <li>Service routes (the agent's tools): only the X-Api-Key header, checked by ApiKeyFilter,
+ *       which runs after this chain.
+ * </ul>
  */
 @Configuration
 public class SecurityConfig {
@@ -50,8 +57,14 @@ public class SecurityConfig {
                 // No cookies, so no CSRF check (CsrfHeaderFilter does not cover /public/).
                 .requestMatchers("/public/v1/**")
                 .permitAll()
-                // Checked by ApiKeyFilter (X-Api-Key).
-                .requestMatchers("/api/**")
+                // Business staff. PanelGuard then checks the business slug and the role.
+                .requestMatchers("/api/v1/panel/**")
+                .authenticated()
+                // The platform operator only: 401 without a session, 403 for anyone else.
+                .requestMatchers("/api/v1/admin/**")
+                .hasRole("ADMIN")
+                // Checked by ApiKeyFilter (X-Api-Key). Any other /api/ path is denied below.
+                .requestMatchers(ApiKeyFilter.SERVICE_ROUTES)
                 .permitAll()
                 .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**")
                 .permitAll()
