@@ -112,11 +112,46 @@ public class ConversationService {
   @Transactional
   public Optional<Message> addAiMessage(
       UUID conversationId, Long businessId, String body, Map<String, Object> metadata) {
-    Conversation conversation = findForUpdate(conversationId, businessId);
-    if (conversation.getState() != AI) {
+    return addAiMessage(conversationId, businessId, body, metadata, false);
+  }
+
+  /**
+   * Same, for the AI_REPLY job (T39). agentHandedOff: agent-service created a handoff during this
+   * turn, so the conversation is already WAITING and the reply is the "a person will continue"
+   * text. It is stored in WAITING too, and the state is left as it is. In HUMAN or RESOLVED the
+   * reply is always dropped.
+   */
+  @Transactional
+  public Optional<Message> addAiMessage(
+      UUID conversationId,
+      Long businessId,
+      String body,
+      Map<String, Object> metadata,
+      boolean agentHandedOff) {
+    ConversationState state = findForUpdate(conversationId, businessId).getState();
+    boolean aiMayAnswer = state == AI || (agentHandedOff && state == WAITING);
+    if (!aiMayAnswer) {
       return Optional.empty();
     }
     return Optional.of(save(Message.ai(conversationId, businessId, body, metadata), 0));
+  }
+
+  /**
+   * AI → WAITING: the AI_REPLY job failed its last attempt (T39), so a person picks the
+   * conversation up instead of the customer waiting forever. Writes an AI_FAILED SYSTEM message.
+   * Empty, and nothing is written, when the conversation is no longer in AI (a handoff or staff got
+   * there first) or is unknown: there is nothing left to rescue, so this never throws a conflict
+   * and is safe to repeat.
+   */
+  @Transactional
+  public Optional<Conversation> failAiReply(UUID conversationId, Long businessId) {
+    int updated = conversations.changeState(conversationId, businessId, Set.of(AI), WAITING, null);
+    if (updated == 0) {
+      return Optional.empty();
+    }
+    Map<String, Object> metadata = Map.of("event", SystemEvent.AI_FAILED.name());
+    save(Message.system(conversationId, businessId, SystemEvent.AI_FAILED, metadata), 0);
+    return Optional.of(find(conversationId, businessId));
   }
 
   /**

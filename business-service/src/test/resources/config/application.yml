@@ -1,0 +1,8 @@
+# Test-only overrides. Spring Boot reads classpath:/config/application.yml in addition to
+# src/main/resources/application.yml (and lets it win), so only these keys change.
+
+tendwise:
+  jobs:
+    # No background polling in tests: a test that needs the worker calls JobWorker itself, so
+    # jobs from one test never run (or fail against a missing agent-service) during another.
+    worker-enabled: false

@@ -68,3 +68,22 @@ tendwise:
     # Conversation starts and messages per IP in any window, in memory per instance.
     ip-limit: 30
     ip-window: 1m
+  # agent-service's internal API (T39). The X-Api-Key it gets is tendwise.api-key above.
+  agent-service:
+    url: ${AGENT_SERVICE_URL:http://localhost:8000}
+    # One agent turn; past this the attempt fails and the job is retried.
+    timeout: 60s
+  # The core.jobs worker (T39, docs/architecture.md "Jobs").
+  jobs:
+    # false = this instance runs no jobs (other instances, or the tests, do).
+    worker-enabled: ${JOB_WORKER_ENABLED:true}
+    poll-interval: 1s
+    # Attempts in total; after the last one the job is FAILED (an AI_REPLY moves to WAITING).
+    max-attempts: 3
+    # Wait before the 2nd attempt; it doubles for each later one (5s, 10s...).
+    retry-delay: 5s
+    # A job RUNNING for longer than this is taken to be lost (instance died) and runs again.
+    # Keep it well above agent-service.timeout.
+    stale-after: 5m
+    # Jobs running at the same time on one instance.
+    max-concurrent: 4
