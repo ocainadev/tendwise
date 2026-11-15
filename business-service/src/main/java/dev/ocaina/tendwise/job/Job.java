@@ -15,8 +15,9 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * A row of the core.jobs queue. T36 and T41 only insert jobs; the worker that runs them is T39. The
- * queue is platform-wide, so the business id travels inside the payload.
+ * A row of the core.jobs queue. Other code only inserts jobs; {@link JobWorker} runs them and is
+ * the only one that changes their status (through {@link JobQueue}). The queue is platform-wide, so
+ * the business id travels inside the payload.
  */
 @Entity
 @Table(name = "jobs")
@@ -81,6 +82,33 @@ public class Job {
             "conversationId", conversationId.toString(),
             "handoffId", handoffId),
         runAt);
+  }
+
+  /** Taken by a worker: one more attempt starts now. */
+  void markRunning(Instant now) {
+    this.status = JobStatus.RUNNING;
+    this.attempts = this.attempts + 1;
+    this.lockedAt = now;
+  }
+
+  void markDone() {
+    this.status = JobStatus.DONE;
+    this.lockedAt = null;
+  }
+
+  /** The attempt failed; the job runs again at runAt. error: the error type, never message text. */
+  void retryAt(Instant runAt, String error) {
+    this.status = JobStatus.PENDING;
+    this.runAt = runAt;
+    this.lockedAt = null;
+    this.lastError = error;
+  }
+
+  /** The last attempt failed; the job is never run again. */
+  void markFailed(String error) {
+    this.status = JobStatus.FAILED;
+    this.lockedAt = null;
+    this.lastError = error;
   }
 
   public Long getId() {

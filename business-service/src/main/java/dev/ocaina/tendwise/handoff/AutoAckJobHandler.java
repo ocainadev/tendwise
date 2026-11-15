@@ -6,6 +6,7 @@ import dev.ocaina.tendwise.business.OpeningHours;
 import dev.ocaina.tendwise.conversation.ConversationService;
 import dev.ocaina.tendwise.conversation.Message;
 import dev.ocaina.tendwise.job.Job;
+import dev.ocaina.tendwise.job.JobHandler;
 import dev.ocaina.tendwise.job.JobType;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -18,15 +19,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Runs an AUTO_ACK job (T41): tells a customer whose handoff is still waiting, once, that the team
- * was notified. The job worker (T39) calls {@link #handle(Job)} for every due AUTO_ACK job and
- * marks the job DONE when it returns, whether a message was sent or not.
+ * was notified. The job worker (T39) calls {@link #run(Job)} for every due AUTO_ACK job and marks
+ * the job DONE when it returns, whether a message was sent or not.
  *
  * <p>Nothing is sent when staff already took over, released or resolved the conversation, when the
  * handoff is no longer OPEN, or when this handoff's auto-ack was already sent. So running the same
  * job twice (a retry after a crash) still sends one message.
  */
 @Component
-public class AutoAckJobHandler {
+public class AutoAckJobHandler implements JobHandler {
 
   private final BusinessRepository businesses;
   private final HandoffRepository handoffs;
@@ -39,6 +40,18 @@ public class AutoAckJobHandler {
     this.businesses = businesses;
     this.handoffs = handoffs;
     this.conversations = conversations;
+  }
+
+  @Override
+  public JobType type() {
+    return JobType.AUTO_ACK;
+  }
+
+  /** Called by the job worker. */
+  @Override
+  @Transactional
+  public void run(Job job) {
+    handle(job);
   }
 
   /** Returns the message sent, or empty when nothing had to be sent. */
