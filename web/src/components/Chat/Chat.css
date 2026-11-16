@@ -178,6 +178,32 @@
   font-size: 0.85rem;
 }
 
+/* System events ("Maria entrou na conversa") and the handoff notice */
+.message--system {
+  align-self: center;
+  align-items: center;
+  max-width: 90%;
+  text-align: center;
+}
+
+.message__event {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.message--system .message__handoff {
+  margin: 0;
+}
+
+/* Staff name above a staff member's message */
+.message__author {
+  margin: 0 0 2px 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
 /* Input */
 .message-input {
   display: flex;

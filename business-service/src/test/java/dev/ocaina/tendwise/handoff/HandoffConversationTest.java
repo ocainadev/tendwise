@@ -132,37 +132,38 @@ class HandoffConversationTest {
     assertThat(autoAcks.getFirst().getRunAt()).isBetween(before, Instant.now());
   }
 
-  // --- temporary rule until T42: unknown conversations ---
-  // The demo chat still creates its conversations in agent-service only, so a handoff for a
-  // conversation that is not in core.conversations is created as before, with no state change and
-  // no auto-ack. T42 moves the demo chat to the public API and must change these two tests to
-  // expect 404 "Conversation not found".
+  // --- unknown conversations (T42) ---
+  // Every chat now starts its conversation in business-service (public API), so a handoff for a
+  // conversation that is not in core.conversations for the business is an error, not a v0.1.0
+  // leftover.
 
   @Test
-  void handoffForUnknownConversationIsCreatedWithoutStateChangeUntilT42() throws Exception {
-    UUID agentOnlyConversation = UUID.randomUUID();
+  void handoffForUnknownConversationReturns404() throws Exception {
+    UUID unknownConversation = UUID.randomUUID();
 
-    createHandoff("open-shop", agentOnlyConversation)
-        .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.status").value("OPEN"))
-        .andExpect(jsonPath("$.conversationId").value(agentOnlyConversation.toString()));
+    createHandoff("open-shop", unknownConversation)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.title").value("Conversation not found"));
 
-    assertThat(handoffs.findByBusinessIdOrderByCreatedAtAsc(openShopId)).hasSize(1);
+    assertThat(handoffs.findByBusinessIdOrderByCreatedAtAsc(openShopId)).isEmpty();
     assertThat(jobs.findAll())
         .noneMatch(
-            job -> agentOnlyConversation.toString().equals(job.getPayload().get("conversationId")));
+            job -> unknownConversation.toString().equals(job.getPayload().get("conversationId")));
   }
 
   @Test
-  void handoffWithConversationOfAnotherBusinessNeverTouchesThatConversation() throws Exception {
+  void handoffWithConversationOfAnotherBusinessReturns404AndNeverTouchesIt() throws Exception {
     Conversation conversation = start(openShopId);
 
-    // Seen from closed-shop the id is unknown, so the temporary rule applies there.
-    createHandoff("closed-shop", conversation.getId()).andExpect(status().isCreated());
+    // Seen from closed-shop the id is unknown: same 404 as an id that does not exist.
+    createHandoff("closed-shop", conversation.getId())
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.title").value("Conversation not found"));
 
     assertThat(reload(conversation, openShopId).getState()).isEqualTo(ConversationState.AI);
     assertThat(history(conversation, openShopId)).isEmpty();
     assertThat(handoffs.findByBusinessIdOrderByCreatedAtAsc(openShopId)).isEmpty();
+    assertThat(handoffs.findByBusinessIdOrderByCreatedAtAsc(closedShopId)).isEmpty();
     assertThat(autoAckJobs(conversation)).isEmpty();
   }
 

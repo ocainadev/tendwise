@@ -8,12 +8,13 @@ interface MessageInputProps {
   value: string
   onChange: (value: string) => void
   onSend: () => void
-  isWaiting: boolean
 }
 
-export function MessageInput({ ref, value, onChange, onSend, isWaiting }: MessageInputProps) {
+export function MessageInput({ ref, value, onChange, onSend }: MessageInputProps) {
   const isTooLong = value.length > MAX_MESSAGE_LENGTH
-  const canSend = value.trim() !== '' && !isTooLong && !isWaiting
+  // Never blocked by a pending reply: with the public API a message is accepted
+  // at once (202), so Enter always sends what is in the box.
+  const canSend = value.trim() !== '' && !isTooLong
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault()

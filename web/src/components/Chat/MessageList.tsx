@@ -1,56 +1,101 @@
-import type { Language, Source } from '../../api/client'
-
-export interface ChatMessage {
-  role: 'customer' | 'clerk'
-  text: string
-  // The fields below only exist on clerk replies.
-  language?: Language
-  sources?: Source[]
-  handoff?: boolean
-}
+import type { PublicMessage, Source } from '../../api/publicApi'
+import { systemText, type ConversationTexts } from './texts'
 
 interface MessageListProps {
-  messages: ChatMessage[]
+  // The business's welcome text, shown first once a conversation started.
+  greeting: string | null
+  messages: PublicMessage[]
   businessName: string
-  isWaiting: boolean
+  texts: ConversationTexts
+  isTyping: boolean
+  // The conversation was handed off and nobody took it yet.
+  isWaitingForStaff: boolean
 }
 
-export function MessageList({ messages, businessName, isWaiting }: MessageListProps) {
+export function MessageList({
+  greeting,
+  messages,
+  businessName,
+  texts,
+  isTyping,
+  isWaitingForStaff,
+}: MessageListProps) {
   return (
     // aria-live makes screen readers read new replies out loud.
     <ol className="message-list" aria-live="polite" aria-label="Conversation">
-      {messages.map((message, index) => (
-        // The list only grows (or is cleared), so the index is a stable key.
-        <li key={index} className={`message message--${message.role}`}>
-          <span className="visually-hidden">
-            {message.role === 'customer' ? 'You:' : `${businessName}:`}
-          </span>
-          <p className="message__bubble" lang={message.language}>
-            {message.text}
-          </p>
-          {message.sources && message.sources.length > 0 && (
-            <SourceList sources={message.sources} />
-          )}
-          {message.handoff && (
-            <p className="message__handoff">A team member will continue this conversation.</p>
-          )}
+      {greeting && (
+        <li className="message message--clerk">
+          <span className="visually-hidden">{businessName}:</span>
+          <p className="message__bubble">{greeting}</p>
         </li>
+      )}
+
+      {messages.map((message) => (
+        <MessageItem key={message.id} message={message} businessName={businessName} texts={texts} />
       ))}
 
-      {isWaiting && (
+      {isWaitingForStaff && (
+        <li className="message message--system">
+          <p className="message__handoff">{texts.handoff}</p>
+        </li>
+      )}
+
+      {isTyping && (
         <li className="message message--clerk">
-          <p className="message__typing">{businessName} is typing…</p>
+          <p className="message__typing">{texts.typing(businessName)}</p>
         </li>
       )}
     </ol>
   )
 }
 
+interface MessageItemProps {
+  message: PublicMessage
+  businessName: string
+  texts: ConversationTexts
+}
+
+function MessageItem({ message, businessName, texts }: MessageItemProps) {
+  if (message.sender === 'SYSTEM') {
+    // "Maria entrou na conversa", "Você voltou para o assistente", …
+    return (
+      <li className="message message--system">
+        <p className="message__event">{systemText(message, texts)}</p>
+      </li>
+    )
+  }
+
+  if (message.sender === 'CUSTOMER') {
+    return (
+      <li className="message message--customer">
+        <span className="visually-hidden">{texts.you}</span>
+        <p className="message__bubble">{message.body}</p>
+      </li>
+    )
+  }
+
+  // AI or HUMAN: a staff message shows who wrote it.
+  const author = message.sender === 'HUMAN' ? (message.authorName ?? null) : null
+  return (
+    <li className={`message message--clerk${author ? ' message--staff' : ''}`}>
+      {author ? (
+        <span className="message__author">{author}</span>
+      ) : (
+        <span className="visually-hidden">{businessName}:</span>
+      )}
+      <p className="message__bubble">{message.body}</p>
+      {message.sources && message.sources.length > 0 && (
+        <SourceList sources={message.sources} label={texts.sources(message.sources.length)} />
+      )}
+    </li>
+  )
+}
+
 // The documents the reply was based on, collapsed so they do not get in the way.
-function SourceList({ sources }: { sources: Source[] }) {
+function SourceList({ sources, label }: { sources: Source[]; label: string }) {
   return (
     <details className="message__sources">
-      <summary>Sources ({sources.length})</summary>
+      <summary>{label}</summary>
       <ul>
         {sources.map((source, index) => (
           <li key={index}>

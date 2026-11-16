@@ -10,6 +10,7 @@ import dev.ocaina.tendwise.conversation.ConversationService;
 import dev.ocaina.tendwise.conversation.Message;
 import dev.ocaina.tendwise.conversation.MessageRepository;
 import dev.ocaina.tendwise.conversation.MessageSender;
+import dev.ocaina.tendwise.conversation.SystemEvent;
 import dev.ocaina.tendwise.realtime.EventStreams;
 import dev.ocaina.tendwise.realtime.EventType;
 import dev.ocaina.tendwise.realtime.RealtimeEvent;
@@ -21,6 +22,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -185,10 +187,28 @@ public class PublicConversationService {
     return eventStreams.openWidgetStream(businessId, conversationId, missed);
   }
 
-  /** Only HUMAN messages have an author (Map.get(null) would throw on an immutable map). */
+  /**
+   * The staff member a message names: the author of a HUMAN message, or who joined for a SYSTEM
+   * TAKEN_OVER message. Null for every other message (Map.get(null) would throw on an immutable
+   * map).
+   */
   private static String authorName(Message message, Map<Long, String> firstNames) {
-    Long authorId = message.getAuthorUserId();
-    return authorId == null ? null : firstNames.get(authorId);
+    Long staffId = staffUserId(message);
+    return staffId == null ? null : firstNames.get(staffId);
+  }
+
+  private static Long staffUserId(Message message) {
+    if (message.getSender() == MessageSender.HUMAN) {
+      return message.getAuthorUserId();
+    }
+    if (message.getSender() == MessageSender.SYSTEM
+        && message.getMetadata() != null
+        && SystemEvent.TAKEN_OVER.name().equals(message.getMetadata().get("event"))
+        && message.getMetadata().get("userId") instanceof Number userId) {
+      // jsonb numbers come back as Integer.
+      return userId.longValue();
+    }
+    return null;
   }
 
   private void checkIpLimit(String ip) {
@@ -244,12 +264,12 @@ public class PublicConversationService {
     return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
   }
 
-  /** First names of the staff who wrote the HUMAN messages, by user id. */
+  /** First names of the staff the messages name (see authorName), by user id. */
   private Map<Long, String> staffFirstNames(List<Message> found) {
     Set<Long> authorIds =
         found.stream()
-            .filter(message -> message.getSender() == MessageSender.HUMAN)
-            .map(Message::getAuthorUserId)
+            .map(PublicConversationService::staffUserId)
+            .filter(Objects::nonNull)
             .collect(Collectors.toSet());
     if (authorIds.isEmpty()) {
       return Map.of();

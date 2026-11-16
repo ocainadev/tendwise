@@ -23,7 +23,7 @@ The MVP has a web chat and two demo businesses: **Joe's Pizza**, a pizzeria with
 
 ```mermaid
 flowchart LR
-    web["web<br/>React + Vite"] -->|"POST /api/v1/chat"| agent
+    web["web<br/>React + Vite"] -->|"public API + SSE (/public/v1)"| biz
     subgraph agent["agent-service · Python, FastAPI, LangGraph"]
         direction TB
         gi[guard_input] --> ci[classify_intent] --> route{route}
@@ -33,6 +33,7 @@ flowchart LR
         route -->|other| gen[answer_generic]
         rag & tool & ho & gen --> go["guard_output → log_turn"]
     end
+    biz -->|"AI_REPLY job: /internal/v1/replies"| agent
     agent -->|"LLM API (OpenAI or Anthropic)"| llm[(LLM)]
     agent -->|"tools: order status, handoff (X-Api-Key)"| biz["business-service<br/>Java 21, Spring Boot 3"]
     agent -->|"schema agent: chunks, turns, memory"| db[("PostgreSQL 16 + pgvector")]
@@ -43,7 +44,7 @@ flowchart LR
 |---|---|---|
 | `business-service/` | Java 21, Spring Boot 3, Flyway | Businesses, catalog, orders, handoffs (REST API with an API key) |
 | `agent-service/` | Python 3.12, FastAPI, LangGraph, fastembed | Agent graph, RAG, guardrails, turn logging, evals |
-| `web/` | React, Vite, TypeScript | Demo chat (`/demo`) with a business picker, sources and the handoff notice; panel login (`/login`) and the shell of the business and admin panels |
+| `web/` | React, Vite, TypeScript | Demo chat (`/demo`) on the public API with live replies (SSE), a business picker, sources, staff messages and the handoff notice; panel login (`/login`) and the shell of the business and admin panels |
 | `db` | PostgreSQL 16 + pgvector | One database, `core` and `agent` schemas |
 | `data/businesses/<slug>/` | Markdown | Each business's catalog, FAQ and policies, indexed for RAG |
 
@@ -263,7 +264,7 @@ cd agent-service && uv run ruff check . && uv run ruff format --check . && uv ru
 
 ### web
 
-The app calls its APIs through relative URLs: Vite's dev proxy (or nginx in Docker) sends `/auth/`, `/api/v1/panel/` and `/api/v1/admin/` to business-service (port 8080) and the demo chat's `/api` to agent-service (port 8000), so no CORS is needed and the session cookies just work. With both services running (needs Node 24):
+The app calls its APIs through relative URLs: Vite's dev proxy (or nginx in Docker) sends `/public/` (the demo chat: public conversation API and its event stream), `/auth/`, `/api/v1/panel/` and `/api/v1/admin/` to business-service (port 8080), and the panel's knowledge-base routes to agent-service (port 8000), so no CORS is needed and the session cookies just work. The demo chat sends each message with `POST` (`202`) and gets the reply on the conversation's SSE stream, like the website widget will; a page refresh continues the conversation. With both services running (needs Node 24):
 
 ```bash
 cd web && npm install && npm run dev
@@ -276,6 +277,8 @@ Lint and tests (`fetch` is mocked, so no backend is needed):
 ```bash
 cd web && npm run lint && npm test
 ```
+
+End-to-end tests (Playwright) run the demo chat in a browser against the Docker stack with a fake LLM; they are not part of CI. See [web/e2e/README.md](web/e2e/README.md).
 
 ## Contributing
 
