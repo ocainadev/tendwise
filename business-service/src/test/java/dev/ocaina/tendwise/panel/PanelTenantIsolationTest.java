@@ -55,7 +55,14 @@ class PanelTenantIsolationTest {
           // Test-only routes (TestPanelRoutes), until the first real panel route (T43).
           new PanelRoute(HttpMethod.GET, TestPanelRoutes.MEMBER_ROUTE),
           new PanelRoute(HttpMethod.POST, TestPanelRoutes.MEMBER_ROUTE),
-          new PanelRoute(HttpMethod.POST, TestPanelRoutes.OWNER_ROUTE));
+          new PanelRoute(HttpMethod.POST, TestPanelRoutes.OWNER_ROUTE),
+          // T34: team and invitations.
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/team"),
+          new PanelRoute(HttpMethod.PATCH, "/api/v1/panel/{slug}/team/{userId}"),
+          new PanelRoute(HttpMethod.DELETE, "/api/v1/panel/{slug}/team/{userId}"),
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/invitations"),
+          new PanelRoute(HttpMethod.POST, "/api/v1/panel/{slug}/invitations"),
+          new PanelRoute(HttpMethod.DELETE, "/api/v1/panel/{slug}/invitations/{id}"));
 
   @Autowired private MockMvc mockMvc;
   @Autowired private AccessTokens accessTokens;
