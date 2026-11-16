@@ -7,6 +7,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -47,6 +48,10 @@ public class Business {
   /** Raw JSON, e.g. {"autoAckMinutes": 3} (T41). Read through {@link #autoAckMinutes()}. */
   @JdbcTypeCode(SqlTypes.JSON)
   private Map<String, Object> handoffSettings;
+
+  /** Assistant name, tone, greeting, languages... (T53). Read through getAssistantSettings(). */
+  @JdbcTypeCode(SqlTypes.JSON)
+  private AssistantSettings assistantSettings;
 
   /** Set by the database default. */
   @Column(insertable = false, updatable = false)
@@ -95,6 +100,41 @@ public class Business {
   public int autoAckMinutes() {
     Object value = handoffSettings == null ? null : handoffSettings.get("autoAckMinutes");
     return value instanceof Number number ? number.intValue() : DEFAULT_AUTO_ACK_MINUTES;
+  }
+
+  /** The stored assistant settings; all languages when none were chosen yet. */
+  public AssistantSettings getAssistantSettings() {
+    AssistantSettings settings =
+        assistantSettings == null
+            ? new AssistantSettings(null, null, null, null, null, null)
+            : assistantSettings;
+    return settings.withDefaultLanguages();
+  }
+
+  /**
+   * Replaces what the owner edits on the settings page (T53). The caller has validated every value.
+   * Other keys of handoff_settings (e.g. waitingAlertMinutes, T48) are kept.
+   */
+  public void updateSettings(
+      String name,
+      String category,
+      String defaultLanguage,
+      String timezone,
+      String openingHoursJson,
+      AssistantSettings assistantSettings,
+      int autoAckMinutes,
+      WidgetSettings widgetSettings) {
+    this.name = name;
+    this.category = category;
+    this.defaultLanguage = defaultLanguage;
+    this.timezone = timezone;
+    this.openingHours = openingHoursJson;
+    this.assistantSettings = assistantSettings;
+    Map<String, Object> handoff =
+        handoffSettings == null ? new HashMap<>() : new HashMap<>(handoffSettings);
+    handoff.put("autoAckMinutes", autoAckMinutes);
+    this.handoffSettings = handoff;
+    this.widgetSettings = widgetSettings;
   }
 
   public Instant getCreatedAt() {

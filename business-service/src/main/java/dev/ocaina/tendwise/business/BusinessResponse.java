@@ -7,6 +7,9 @@ import com.fasterxml.jackson.databind.JsonNode;
  *
  * <p>openingHours is a JsonNode, so it is serialised as a real JSON object (e.g. {"fri": [{"open":
  * "11:00", "close": "23:30"}]}) and not as an escaped string.
+ *
+ * <p>assistantSettings (T53) is read by the agent from T54: name, tone, greeting, extra
+ * instructions, enabled languages and the out-of-hours message.
  */
 public record BusinessResponse(
     String slug,
@@ -14,4 +17,5 @@ public record BusinessResponse(
     String category,
     String defaultLanguage,
     String timezone,
-    JsonNode openingHours) {}
+    JsonNode openingHours,
+    AssistantSettings assistantSettings) {}

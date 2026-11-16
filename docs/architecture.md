@@ -132,6 +132,7 @@ Parallel Java PRs must not pick the same Flyway version:
 - **T38** adds `V5__widget.sql` (`businesses.publishable_key`, `businesses.widget_settings`). The demo businesses get `pk_demo_joes_pizza` and `pk_demo_denim_corner` and allow `http://localhost:5173` and `http://127.0.0.1:5173`.
 - **T41** adds `V6__handoff_settings.sql` (`businesses.handoff_settings`, job type `AUTO_ACK`).
 - **T34** adds `V7__invitations.sql` (`invitations`).
+- **T53** adds `V8__assistant_settings.sql` (`businesses.assistant_settings`, default `{}`).
 - Every later Java task takes **the next free number at the time it starts** (`V5__…`, `V6__…`, …). If another PR with the same number lands first, rebase and renumber before merging. Never edit a migration that is already on main.
 
 ### Schema `agent` (owned by agent-service)
@@ -395,7 +396,7 @@ Errors follow RFC 7807 (Problem Details). Docs via springdoc/Swagger at `/swagge
 
 Planned changes to these service routes (they stay at the same paths, for the agent's tools):
 
-- `GET /businesses/{slug}` adds `assistantSettings` (planned: T53, read by the agent from T54).
+- `GET /businesses/{slug}` adds `assistantSettings` (T53, read by the agent from T54): `name`, `tone`, `greeting`, `extraInstructions`, `outOfHoursMessage` (each `null` when not set) and `languages` (all of `en`, `es`, `pt` until the owner chooses). The other fields are unchanged; agent-service ignores the new one until T54.
 - `POST /handoffs` (T41): when the conversation exists in `core.conversations` for that business, the same transaction moves it to `WAITING` with a `SYSTEM` message (`HANDOFF_CREATED`, with `reason` and `handoffId`) and queues the `AUTO_ACK` job.
 - **Temporary rule until T42:** when the conversation is not in `core.conversations` for that business (the demo chat still creates its conversations in agent-service only), the handoff is created as in v0.1.0, with no state change and no auto-ack, so the demo's handoff keeps working. A conversation of another business is never changed. `HandoffConversationTest` pins this rule.
 - `POST /handoffs` (planned: T42): once the demo chat uses the public API, an unknown conversation answers 404 (same as an unknown business), and the tests that pin the temporary rule change with it.
@@ -471,6 +472,8 @@ business-service:
 | CRUD | `/api/v1/panel/{slug}/team`, `/api/v1/panel/{slug}/invitations` | OWNER | T34 |
 | CRUD | `/api/v1/panel/{slug}/api-keys` | OWNER | T57 |
 | GET | `/api/v1/panel/{slug}/dashboard?from=&to=` (from `usage_daily` and `handoffs`) | OWNER | T60 |
+
+- **As built (T53):** package `dev.ocaina.tendwise.settings`. `GET` and `PUT /settings` (OWNER only) use one body: `name`, `category`, `defaultLanguage`, `timezone`, `openingHours`, `assistantSettings`, `handoffSettings` (`autoAckMinutes`, 1–60), `widgetSettings` (`color` `#rrggbb`, `position` `bottom-right` or `bottom-left`, up to 20 `allowedDomains`). `PUT` replaces everything; other keys already in `handoff_settings` (e.g. `waitingAlertMinutes`, T48) are kept. Caps: assistant `name` 60, `tone` 200, `greeting` 500, `extraInstructions` 1,000, `outOfHoursMessage` 500 characters. Checks: an IANA region time zone, days `mon`–`sun` with up to 4 `HH:mm` intervals each (close ≠ open; a close before open ends the next day), languages without repeats that include `defaultLanguage`, and allowed domains that are origins (`http`/`https`, host, optional port; no path, query or user). An unknown field, a wrong type or any failed check answers `400` (problem `Invalid request`) with `errors: [{field, message}]`, e.g. `openingHours.mon[0].open`. The widget greeting still uses the fixed texts; `assistantSettings.greeting` is not used by the public API yet.
 
 agent-service (verifies the same JWT with the JWKS, and the CSRF header):
 

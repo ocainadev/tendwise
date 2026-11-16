@@ -29,6 +29,16 @@ public class ApiExceptionHandler {
     return problem;
   }
 
+  /** 400 with one entry per invalid field in "errors". */
+  @ExceptionHandler(InvalidFieldsException.class)
+  ProblemDetail handleInvalidFields(InvalidFieldsException exception) {
+    ProblemDetail problem =
+        ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+    problem.setTitle("Invalid request");
+    problem.setProperty("errors", exception.getErrors());
+    return problem;
+  }
+
   @ExceptionHandler(ConflictException.class)
   ProblemDetail handleConflict(ConflictException exception) {
     ProblemDetail problem =

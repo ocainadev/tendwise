@@ -67,7 +67,10 @@ class PanelTenantIsolationTest {
           new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/events"),
           // T43: inbox, read side.
           new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/conversations"),
-          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/conversations/{id}"));
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/conversations/{id}"),
+          // T53: settings.
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/settings"),
+          new PanelRoute(HttpMethod.PUT, "/api/v1/panel/{slug}/settings"));
 
   @Autowired private MockMvc mockMvc;
   @Autowired private AccessTokens accessTokens;
