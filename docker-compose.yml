@@ -35,6 +35,9 @@ services:
       # Panel login: the key that signs access tokens (see .env.example for how to make one).
       AUTH_JWT_PRIVATE_KEY: ${AUTH_JWT_PRIVATE_KEY:?Set AUTH_JWT_PRIVATE_KEY in .env}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      # Links in emails (T34) and whether the log adapter prints them with the token (dev only).
+      WEB_URL: ${WEB_URL:-http://localhost:5173}
+      EMAIL_LOG_LINKS: ${EMAIL_LOG_LINKS:-false}
       # The job worker calls agent-service for AI replies (T39). Empty = the compose service.
       AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-http://agent-service:8000}
       JOB_WORKER_ENABLED: ${JOB_WORKER_ENABLED:-true}

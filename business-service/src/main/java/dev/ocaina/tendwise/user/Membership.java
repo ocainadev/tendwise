@@ -29,6 +29,13 @@ public class Membership {
     this.createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
   }
 
+  /**
+   * Used by the team API (T34). The new role reaches the user's access token on its next refresh.
+   */
+  public void changeRole(MembershipRole newRole) {
+    this.role = newRole;
+  }
+
   public MembershipId getId() {
     return id;
   }

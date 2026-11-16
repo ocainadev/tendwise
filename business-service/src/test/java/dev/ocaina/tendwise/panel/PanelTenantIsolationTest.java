@@ -56,6 +56,13 @@ class PanelTenantIsolationTest {
           new PanelRoute(HttpMethod.GET, TestPanelRoutes.MEMBER_ROUTE),
           new PanelRoute(HttpMethod.POST, TestPanelRoutes.MEMBER_ROUTE),
           new PanelRoute(HttpMethod.POST, TestPanelRoutes.OWNER_ROUTE),
+          // T34: team and invitations.
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/team"),
+          new PanelRoute(HttpMethod.PATCH, "/api/v1/panel/{slug}/team/{userId}"),
+          new PanelRoute(HttpMethod.DELETE, "/api/v1/panel/{slug}/team/{userId}"),
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/invitations"),
+          new PanelRoute(HttpMethod.POST, "/api/v1/panel/{slug}/invitations"),
+          new PanelRoute(HttpMethod.DELETE, "/api/v1/panel/{slug}/invitations/{id}"),
           // T40: the panel's live stream (SSE).
           new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/events"));
 

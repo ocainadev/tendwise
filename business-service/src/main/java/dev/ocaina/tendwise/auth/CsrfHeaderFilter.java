@@ -31,8 +31,11 @@ class CsrfHeaderFilter extends OncePerRequestFilter {
   private static final List<String> PROTECTED_PREFIXES =
       List.of("/auth/", "/api/v1/panel/", "/api/v1/admin/");
 
-  /** Called before there is a session (and so before there is a CSRF cookie). */
-  private static final Set<String> EXEMPT_PATHS = Set.of("/auth/login");
+  /**
+   * Called before there is a session (and so before there is a CSRF cookie). Neither reads the
+   * session cookies, so a forged request gains nothing.
+   */
+  private static final Set<String> EXEMPT_PATHS = Set.of("/auth/login", "/auth/invitations/accept");
 
   private final ObjectMapper objectMapper;
 
