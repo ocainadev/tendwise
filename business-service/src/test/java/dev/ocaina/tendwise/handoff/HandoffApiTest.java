@@ -15,7 +15,6 @@ import dev.ocaina.tendwise.TestcontainersConfiguration;
 import dev.ocaina.tendwise.business.BusinessRepository;
 import dev.ocaina.tendwise.conversation.Channel;
 import dev.ocaina.tendwise.conversation.ConversationService;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -129,8 +128,16 @@ class HandoffApiTest {
   @Test
   void listByStatusReturnsOnlyMatchingHandoffs() throws Exception {
     long stillOpen = createHandoff("joes-pizza", "COMPLAINT");
-    long resolved = createHandoff("joes-pizza", "LOW_CONFIDENCE");
-    patchStatus(resolved, "joes-pizza", "RESOLVED").andExpect(status().isOk());
+    UUID resolvedConversation = newConversation("joes-pizza");
+    long resolved =
+        readJson(
+                postHandoff(
+                    createBody("joes-pizza", resolvedConversation, "LOW_CONFIDENCE", "Summary.")))
+            .get("id")
+            .asLong();
+    // T44: a handoff's status follows its conversation.
+    Long joesId = businesses.findBySlug("joes-pizza").orElseThrow().getId();
+    conversations.resolve(resolvedConversation, joesId, 1L);
 
     listHandoffs("joes-pizza", "OPEN")
         .andExpect(status().isOk())
@@ -158,48 +165,23 @@ class HandoffApiTest {
   }
 
   @Test
-  void updateStatusReturnsTheUpdatedHandoff() throws Exception {
-    ResultActions created =
-        postHandoff(
-            createBody("joes-pizza", newConversation("joes-pizza"), "COMPLAINT", "Cold pizza."));
-    JsonNode before = readJson(created);
-    long id = before.get("id").asLong();
-
-    ResultActions updated = patchStatus(id, "joes-pizza", "IN_PROGRESS");
-
-    updated
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.id").value(id))
-        .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
-        .andExpect(jsonPath("$.createdAt").value(before.get("createdAt").asText()));
-    Instant updatedAtBefore = Instant.parse(before.get("updatedAt").asText());
-    Instant updatedAtAfter = Instant.parse(readJson(updated).get("updatedAt").asText());
-    assertThat(updatedAtAfter).isAfter(updatedAtBefore);
-  }
-
-  @Test
-  void updateOfUnknownIdReturns404() throws Exception {
-    expectHandoffNotFound(patchStatus(999_999, "joes-pizza", "RESOLVED"));
-  }
-
-  @Test
-  void updateOfAnotherBusinessHandoffReturnsTheSame404() throws Exception {
-    long denimHandoff = createHandoff("denim-corner", "COMPLAINT");
-
-    expectHandoffNotFound(patchStatus(denimHandoff, "joes-pizza", "RESOLVED"));
-  }
-
-  @Test
-  void updateWithMissingStatusReturns400() throws Exception {
+  void patchStatusIsGone() throws Exception {
+    // T44: the status follows the conversation, so the route was removed.
     long id = createHandoff("joes-pizza", "COMPLAINT");
 
-    var request =
-        patch("/api/v1/handoffs/{id}", id)
-            .param("businessSlug", "joes-pizza")
-            .header("X-Api-Key", VALID_KEY)
-            .contentType(MediaType.APPLICATION_JSON)
-            .content("{}");
-    expectBadRequest(mockMvc.perform(request));
+    int status =
+        mockMvc
+            .perform(
+                patch("/api/v1/handoffs/{id}", id)
+                    .param("businessSlug", "joes-pizza")
+                    .header("X-Api-Key", VALID_KEY)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"status\": \"RESOLVED\"}"))
+            .andReturn()
+            .getResponse()
+            .getStatus();
+
+    assertThat(status).isIn(404, 405);
   }
 
   @Test
@@ -255,15 +237,6 @@ class HandoffApiTest {
     return mockMvc.perform(request);
   }
 
-  private ResultActions patchStatus(long id, String slug, String status) throws Exception {
-    return mockMvc.perform(
-        patch("/api/v1/handoffs/{id}", id)
-            .param("businessSlug", slug)
-            .header("X-Api-Key", VALID_KEY)
-            .contentType(MediaType.APPLICATION_JSON)
-            .content("{\"status\": \"" + status + "\"}"));
-  }
-
   private JsonNode readJson(ResultActions result) throws Exception {
     return objectMapper.readTree(result.andReturn().getResponse().getContentAsString());
   }
@@ -272,14 +245,5 @@ class HandoffApiTest {
     result
         .andExpect(status().isBadRequest())
         .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
-  }
-
-  /** Same status and title for an unknown id and an id of another business. */
-  private void expectHandoffNotFound(ResultActions result) throws Exception {
-    result
-        .andExpect(status().isNotFound())
-        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
-        .andExpect(jsonPath("$.title").value("Handoff not found"))
-        .andExpect(jsonPath("$.detail").value("No handoff with this id in this business."));
   }
 }

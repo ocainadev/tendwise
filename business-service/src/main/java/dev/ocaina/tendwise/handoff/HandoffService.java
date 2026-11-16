@@ -88,24 +88,6 @@ public class HandoffService {
     return found.stream().map(HandoffResponse::from).toList();
   }
 
-  /**
-   * Changes the status. Unknown business, unknown id and an id of another business all throw the
-   * same exception, so a caller cannot probe which ids exist elsewhere.
-   */
-  @Transactional
-  public HandoffResponse updateStatus(String businessSlug, Long id, HandoffStatus status) {
-    Handoff handoff =
-        businesses
-            .findBySlug(businessSlug)
-            .flatMap(business -> handoffs.findByIdAndBusinessId(id, business.getId()))
-            .orElseThrow(() ->
-                new NotFoundException(
-                    "Handoff not found", "No handoff with this id in this business."));
-    // The entity is managed, so the change is saved when the transaction commits.
-    handoff.changeStatus(status);
-    return HandoffResponse.from(handoff);
-  }
-
   private Business findBusiness(String slug) {
     return businesses
         .findBySlug(slug)
