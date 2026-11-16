@@ -1,0 +1,160 @@
+/* Settings (T55) and team pages. Plain CSS with the colour variables from
+   index.css, like the shell; the knowledge page's helpers (knowledge-muted,
+   knowledge-small, knowledge-table) are reused. */
+
+.settings-form,
+.team-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 860px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+
+.settings-section h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.settings-field input,
+.settings-field textarea,
+.settings-row input,
+.settings-interval input {
+  padding: 8px 10px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.settings-field input[type='color'] {
+  width: 64px;
+  height: 40px;
+  padding: 2px;
+}
+
+.settings-field input[aria-invalid='true'],
+.settings-field textarea[aria-invalid='true'] {
+  border-color: var(--color-error-text);
+}
+
+.settings-field textarea {
+  resize: vertical;
+}
+
+.settings-field-error {
+  font-size: 0.85rem;
+  color: var(--color-error-text);
+}
+
+.settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.settings-check {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin-right: 16px;
+}
+
+.settings-hours {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-day,
+.settings-languages,
+.settings-domains {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.settings-day legend,
+.settings-languages legend,
+.settings-domains legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.settings-interval {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.settings-domains {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.settings-domain-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-domain-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* The save button stays in view while the long form scrolls. */
+.settings-save {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+  background: var(--color-bg);
+}
+
+.team-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.team-confirm p {
+  margin: 0;
+}
+
+.settings-invite-submit {
+  align-self: flex-end;
+}

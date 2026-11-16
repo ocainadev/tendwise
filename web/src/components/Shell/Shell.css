@@ -227,3 +227,16 @@
     justify-content: space-between;
   }
 }
+
+/* A success message in the corner (useToast). */
+.shell-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 10;
+  padding: 10px 16px;
+  color: #ffffff;
+  background: var(--color-text);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
+}

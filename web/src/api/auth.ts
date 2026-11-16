@@ -51,3 +51,14 @@ export async function logout(): Promise<void> {
     // Server unreachable: nothing else to do.
   }
 }
+
+// Asks for a new access token, which carries the user's memberships as they
+// are now (e.g. right after accepting an invitation). False if it failed.
+export async function refreshSession(): Promise<boolean> {
+  try {
+    const response = await apiFetch('/auth/refresh', { method: 'POST' })
+    return response.ok
+  } catch {
+    return false
+  }
+}
