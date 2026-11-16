@@ -1,5 +1,6 @@
 """The eval dataset itself: size, coverage, valid values, and facts grounded in real data."""
 
+import json
 import re
 from collections import Counter
 from pathlib import Path
@@ -7,7 +8,10 @@ from typing import get_args
 
 import pytest
 
+from app.agent.intent import IntentResult
+from app.agent.nodes.create_handoff import handoff_reply
 from app.agent.replies import fixed_reply
+from app.gateways.business_gateway import AssistantSettings
 from app.guardrails.injection import find_injection
 from app.guardrails.normalize import normalize
 from app.guardrails.replies import refusal
@@ -25,6 +29,20 @@ LAST4 = re.compile(r"\b\d{4}\b")
 
 CASES = load_dataset()
 
+# One seeded business: ('joes-pizza', 'Joe''s Pizza', 'restaurant', 'en', 'America/New_York',
+# '{"mon": [], ...}'): slug, name, category, language, time zone, opening hours.
+SEED_BUSINESS = re.compile(
+    r"\('([a-z-]+)',\s*'(?:[^']|'')*',\s*'[^']*',\s*'[a-z]{2}',\s*'([^']+)',\s*'(\{[^']*\})'"
+)
+
+
+def seeded_hours() -> dict[str, tuple[str, dict]]:
+    """Business slug -> (time zone, opening hours), from business-service's seed."""
+    return {
+        slug: (timezone, json.loads(hours))
+        for slug, timezone, hours in SEED_BUSINESS.findall(SEED_SQL.read_text("utf-8"))
+    }
+
 
 def business_docs(slug: str) -> str:
     """Every .md document of one business, normalised like the scoring does."""
@@ -40,9 +58,35 @@ def seeded_orders() -> dict[str, str]:
     }
 
 
-def test_has_45_cases_with_unique_ids() -> None:
-    assert len(CASES) == 45
-    assert len({case.id for case in CASES}) == 45
+def out_of_hours_reply(case: EvalCase) -> str:
+    """The handoff reply at the case's time, with the business's seeded opening hours."""
+    timezone, hours = seeded_hours()[case.business]
+    state = {
+        "intent": IntentResult(
+            intent="human_request", confidence=0.9, sentiment="neutral", language=case.language
+        ),
+        "now": case.now,
+        "timezone": timezone,
+        "opening_hours": hours,
+        "assistant": case.assistant_settings or AssistantSettings(),
+    }
+    return handoff_reply(state)
+
+
+def test_seeded_hours_are_read_for_every_business() -> None:
+    assert set(seeded_hours()) == set(BUSINESS_NAMES)
+    assert seeded_hours()["denim-corner"][1]["sun"] == []
+
+
+def test_out_of_hours_cases_are_really_out_of_hours() -> None:
+    for case in CASES:
+        if case.now is not None:
+            assert out_of_hours_reply(case) != fixed_reply("handoff", case.language), case.id
+
+
+def test_has_53_cases_with_unique_ids() -> None:
+    assert len(CASES) == 53
+    assert len({case.id for case in CASES}) == 53
 
 
 def test_coverage_matches_spec_section_10() -> None:
@@ -52,7 +96,22 @@ def test_coverage_matches_spec_section_10() -> None:
         "complaint_or_human": 8,
         "injection_or_off_topic": 7,
         "multilingual": 5,
+        "merchant_settings": 8,
     }
+
+
+def test_merchant_settings_cases_cover_rule_breaking_and_out_of_hours() -> None:
+    cases = [case for case in CASES if case.category == "merchant_settings"]
+    with_instructions = [
+        case
+        for case in cases
+        if case.assistant_settings and case.assistant_settings.extra_instructions
+    ]
+    out_of_hours = [case for case in cases if case.now is not None]
+
+    assert len(with_instructions) == 4
+    assert {case.expected_tool for case in out_of_hours} == {"create_handoff"}
+    assert {case.language for case in out_of_hours} == {"en", "es", "pt"}
 
 
 def test_multilingual_cases_cover_every_language() -> None:
@@ -118,7 +177,9 @@ def test_catalog_facts_are_in_the_business_documents() -> None:
 def test_fixed_reply_facts_match_the_fixed_texts() -> None:
     """Handoff and refusal replies are fixed texts, so their facts must be in them."""
     for case in CASES:
-        if case.expected_tool == "create_handoff":
+        if case.expected_tool == "create_handoff" and case.now is not None:
+            reply = out_of_hours_reply(case)
+        elif case.expected_tool == "create_handoff":
             reply = fixed_reply("handoff", case.language)
         elif case.is_injection:
             reply = refusal("injection", case.language, BUSINESS_NAMES[case.business])

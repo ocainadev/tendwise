@@ -4,12 +4,12 @@ With no chunks there is nothing to ground an answer on, so we skip the LLM and
 say we do not know, offering a person instead of guessing.
 """
 
+from app.agent.business_instructions import answer_system_prompt
 from app.agent.deps import AgentDeps
 from app.agent.prompt_input import chunks_text, history_text, tagged
 from app.agent.replies import fixed_reply
 from app.agent.state import AgentState, Source
 from app.llm.client import Message
-from app.prompts import load_prompt
 from app.rag.retriever import RetrievedChunk
 
 
@@ -28,7 +28,8 @@ def run(state: AgentState, deps: AgentDeps) -> dict:
         ]
     )
     response = deps.llm.complete(
-        load_prompt("answer_with_context"), [Message(role="user", content=user_input)]
+        answer_system_prompt("answer_with_context", state["assistant"]),
+        [Message(role="user", content=user_input)],
     )
     return {
         "reply": response.text.strip(),

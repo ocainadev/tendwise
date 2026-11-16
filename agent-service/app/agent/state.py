@@ -18,12 +18,14 @@ Two kinds of fields:
 """
 
 import time
+from datetime import UTC, datetime
 from typing import Literal, TypedDict
 
 from pydantic import BaseModel
 
 from app.agent.intent import IntentResult, Language
 from app.agent.staff import StaffMessage
+from app.gateways.business_gateway import AssistantSettings
 from app.llm.client import LLMResponse, Message
 from app.rag.retriever import RetrievedChunk
 
@@ -53,6 +55,12 @@ class AgentState(TypedDict):
     # Where the conversation happens: "playground" is the knowledge page's test
     # chat (T51), which records no knowledge gaps (T58) and is not counted.
     channel: Channel
+    # The owner's settings from the panel (T54): assistant name, tone, extra
+    # instructions, enabled languages and out-of-hours message.
+    assistant: AssistantSettings
+    # The business's IANA time zone and opening hours, for the out-of-hours handoff.
+    timezone: str
+    opening_hours: dict[str, list[dict[str, str]]] | None
 
     # --- persistent: survive across turns of the same conversation ---
     # Every customer message and final reply, oldest first (user, assistant, ...),
@@ -67,6 +75,7 @@ class AgentState(TypedDict):
     # --- per-turn: reset at the start of every turn ---
     message: str  # the customer's message of this turn
     started_at: float  # time.monotonic() when the turn began, for latency (T12)
+    now: datetime  # when the turn began (aware, UTC), to check the opening hours
     intent: IntentResult | None
     next_step: NextStep | None
     handoff_reason: HandoffReason | None
@@ -94,11 +103,16 @@ def new_turn_input(
     conversation_id: str,
     message: str,
     channel: Channel = "web",
+    assistant: AssistantSettings | None = None,
+    timezone: str = "UTC",
+    opening_hours: dict[str, list[dict[str, str]]] | None = None,
+    now: datetime | None = None,
 ) -> dict:
     """The input of one turn: business data, the new message, and every per-turn field reset.
 
     Persistent fields are left out on purpose, so the values saved by the
-    checkpointer in the previous turn are kept.
+    checkpointer in the previous turn are kept. Without `assistant` settings or
+    opening hours the agent behaves as before T54.
     """
     return {
         "business_slug": business_slug,
@@ -106,8 +120,12 @@ def new_turn_input(
         "default_language": default_language,
         "conversation_id": conversation_id,
         "channel": channel,
+        "assistant": assistant or AssistantSettings(),
+        "timezone": timezone,
+        "opening_hours": opening_hours,
         "message": message,
         "started_at": time.monotonic(),
+        "now": now or datetime.now(UTC),
         "intent": None,
         "next_step": None,
         "handoff_reason": None,
@@ -128,6 +146,17 @@ def turn_language(state: AgentState) -> Language:
     if state["intent"] is not None:
         return state["intent"].language
     return state.get("blocked_language") or state["default_language"]
+
+
+def enabled_language(language: Language, state: AgentState) -> Language:
+    """`language` if the owner enabled it, else the business's default language (T54).
+
+    The classifier detects the customer's language; this keeps every reply of
+    the turn in one of the languages the business chose to support.
+    """
+    if language in state["assistant"].languages:
+        return language
+    return state["default_language"]
 
 
 def empty_memory() -> dict:

@@ -147,3 +147,29 @@ def test_model_flag_overrides_the_configured_model(monkeypatch: pytest.MonkeyPat
 
     assert load_settings(None).llm_model == "claude-haiku-5-5"
     assert load_settings("claude-sonnet-5-5").llm_model == "claude-sonnet-5-5"
+
+
+def test_case_settings_and_time_reach_the_turn() -> None:
+    """settings-07: the case's out-of-hours message and Monday morning reach the handoff."""
+    case = CASES["settings-07"]
+    llm = FakeLLM([classification(intent="human_request"), "Customer asked for a person."])
+    service = make_service(llm)
+    joes = BUSINESS.model_copy(
+        update={"opening_hours": {"tue": [{"open": "11:00", "close": "22:00"}]}}
+    )
+
+    [score] = run_cases(service, lambda slug: joes, [case])
+
+    assert score.failed_checks == []
+    assert "tomorrow at 11:00 am" in score.outcome.reply
+    assert "call you back" in score.outcome.reply
+
+
+def test_case_extra_instructions_reach_the_answer_prompt() -> None:
+    case = CASES["settings-04"]
+    llm = FakeLLM([classification(intent="catalog_question"), "Delivery costs $3.99."])
+    service = make_service(llm, FakeRetriever([CHUNK]))
+
+    run_cases(service, lambda slug: BUSINESS, [case])
+
+    assert "delivery is free today" in llm.calls[1][0]

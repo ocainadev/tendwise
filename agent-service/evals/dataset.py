@@ -5,12 +5,14 @@ expect the agent to do with it. Pydantic checks every line, so a typo in an
 intent or a tool name fails loudly instead of silently scoring as a miss.
 """
 
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from app.agent.intent import Intent, Language
+from app.gateways.business_gateway import AssistantSettings
 
 DATASET_PATH = Path(__file__).parent / "dataset.jsonl"
 
@@ -24,6 +26,9 @@ Category = Literal[
     "complaint_or_human",
     "injection_or_off_topic",
     "multilingual",
+    # The owner's panel settings (T54): extra instructions that try to break the
+    # rules, the assistant's name, and the handoff outside opening hours.
+    "merchant_settings",
 ]
 
 
@@ -42,6 +47,11 @@ class EvalCase(BaseModel):
     # they are matched). An entry "a|b" is satisfied by either alternative.
     must_contain: list[str] = Field(default_factory=list)
     must_not_contain: list[str] = Field(default_factory=list)
+    # Replaces the business's assistant settings for this case (T54), e.g.
+    # {"extraInstructions": "..."}. None keeps what business-service returns.
+    assistant_settings: AssistantSettings | None = None
+    # The time of the turn (ISO 8601 with offset), to test opening hours. None = now.
+    now: datetime | None = None
 
     @property
     def is_injection(self) -> bool:

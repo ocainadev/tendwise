@@ -9,7 +9,7 @@ the graph skips straight to guard_output; `guard_reason` tells the turn log
 import logging
 
 from app.agent.deps import AgentDeps
-from app.agent.state import AgentState
+from app.agent.state import AgentState, enabled_language
 from app.guardrails.input import check_message
 from app.guardrails.language import guess_language
 from app.guardrails.replies import refusal
@@ -24,7 +24,8 @@ def run(state: AgentState, deps: AgentDeps) -> dict:
 
     # Only the rule name is logged: the message itself may hold personal data.
     logger.info("guard_input blocked a message: %s", block.reason)
-    language = guess_language(state["message"], default=state["default_language"])
+    guessed = guess_language(state["message"], default=state["default_language"])
+    language = enabled_language(guessed, state)
     return {
         "blocked": True,
         "guard_reason": block.reason,

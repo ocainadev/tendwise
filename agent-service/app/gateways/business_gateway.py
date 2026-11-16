@@ -13,7 +13,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 import httpx
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
 
 from app.agent.intent import Language
@@ -36,6 +36,76 @@ class _CamelModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
+# The same caps business-service enforces (T53), applied again here: a longer
+# text is cut, so a bug or an old row there can never blow up a prompt.
+MAX_ASSISTANT_NAME_CHARS = 60
+MAX_TONE_CHARS = 200
+MAX_GREETING_CHARS = 500
+MAX_EXTRA_INSTRUCTIONS_CHARS = 1000
+MAX_OUT_OF_HOURS_MESSAGE_CHARS = 500
+ALL_LANGUAGES: list[Language] = ["en", "es", "pt"]
+
+
+def _capped(text: str | None, limit: int) -> str | None:
+    """`text` stripped and cut to `limit` characters; None when it is empty."""
+    if text is None:
+        return None
+    text = text.strip()[:limit].strip()
+    return text or None
+
+
+class AssistantSettings(_CamelModel):
+    """`assistantSettings` of GET /businesses/{slug} (T53), written by the owner in the panel.
+
+    Every field is optional, so a payload from before T53 (no `assistantSettings`
+    at all) gives the default settings and today's behaviour.
+    """
+
+    name: str | None = None
+    tone: str | None = None
+    # Shown by business-service when a conversation starts; the agent does not use it.
+    greeting: str | None = None
+    extra_instructions: str | None = None
+    out_of_hours_message: str | None = None
+    # The languages the assistant may reply in (all three until the owner chooses).
+    languages: list[Language] = Field(default_factory=lambda: list(ALL_LANGUAGES))
+
+    @field_validator("name")
+    @classmethod
+    def _cap_name(cls, value: str | None) -> str | None:
+        return _capped(value, MAX_ASSISTANT_NAME_CHARS)
+
+    @field_validator("tone")
+    @classmethod
+    def _cap_tone(cls, value: str | None) -> str | None:
+        return _capped(value, MAX_TONE_CHARS)
+
+    @field_validator("greeting")
+    @classmethod
+    def _cap_greeting(cls, value: str | None) -> str | None:
+        return _capped(value, MAX_GREETING_CHARS)
+
+    @field_validator("extra_instructions")
+    @classmethod
+    def _cap_extra_instructions(cls, value: str | None) -> str | None:
+        return _capped(value, MAX_EXTRA_INSTRUCTIONS_CHARS)
+
+    @field_validator("out_of_hours_message")
+    @classmethod
+    def _cap_out_of_hours_message(cls, value: str | None) -> str | None:
+        return _capped(value, MAX_OUT_OF_HOURS_MESSAGE_CHARS)
+
+    @field_validator("languages", mode="before")
+    @classmethod
+    def _all_languages_when_missing(cls, value: object) -> object:
+        # Unknown codes are dropped; null or [] would leave the assistant with no
+        # language, so all three are used instead.
+        if not isinstance(value, list):
+            return list(ALL_LANGUAGES)
+        known = [language for language in value if language in ALL_LANGUAGES]
+        return known or list(ALL_LANGUAGES)
+
+
 class BusinessInfo(_CamelModel):
     """GET /businesses/{slug}: what the agent needs to know about the business."""
 
@@ -46,6 +116,12 @@ class BusinessInfo(_CamelModel):
     timezone: str
     # e.g. {"tue": [{"open": "11:00", "close": "22:00"}], "mon": []}
     opening_hours: dict[str, list[dict[str, str]]] | None = None
+    assistant_settings: AssistantSettings = Field(default_factory=AssistantSettings)
+
+    @field_validator("assistant_settings", mode="before")
+    @classmethod
+    def _default_when_null(cls, value: object) -> object:
+        return AssistantSettings() if value is None else value
 
 
 class OrderStatusInfo(_CamelModel):
