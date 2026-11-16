@@ -68,6 +68,14 @@ class PanelTenantIsolationTest {
           // T43: inbox, read side.
           new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/conversations"),
           new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/conversations/{id}"),
+          // T44: inbox actions.
+          new PanelRoute(HttpMethod.POST, "/api/v1/panel/{slug}/conversations/{id}/takeover"),
+          new PanelRoute(HttpMethod.POST, "/api/v1/panel/{slug}/conversations/{id}/messages"),
+          new PanelRoute(HttpMethod.POST, "/api/v1/panel/{slug}/conversations/{id}/assign"),
+          new PanelRoute(HttpMethod.POST, "/api/v1/panel/{slug}/conversations/{id}/release"),
+          new PanelRoute(HttpMethod.POST, "/api/v1/panel/{slug}/conversations/{id}/resolve"),
+          new PanelRoute(HttpMethod.POST, "/api/v1/panel/{slug}/conversations/{id}/read"),
+          new PanelRoute(HttpMethod.POST, "/api/v1/panel/{slug}/conversations/{id}/typing"),
           // T53: settings.
           new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/settings"),
           new PanelRoute(HttpMethod.PUT, "/api/v1/panel/{slug}/settings"));

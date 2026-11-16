@@ -182,16 +182,29 @@ class ConversationServiceTest {
   }
 
   @Test
-  void takeOverMovesWaitingToHuman() {
-    Conversation conversation = inState(WAITING);
+  void takeOverMovesAiOrWaitingToHuman() {
+    for (ConversationState from : List.of(AI, WAITING)) {
+      Conversation conversation = inState(from);
+
+      Conversation result = service.takeOver(conversation.getId(), businessId, STAFF_ID);
+
+      assertThat(result.getState()).isEqualTo(HUMAN);
+      assertThat(result.getAssigneeUserId()).isEqualTo(STAFF_ID);
+      Message system = history(conversation).getLast();
+      assertThat(system.isInternal()).isFalse();
+      assertThat(system.getMetadata()).containsEntry("event", "TAKEN_OVER");
+    }
+  }
+
+  @Test
+  void takingOverAgainOwnConversationChangesNothing() {
+    Conversation conversation = inState(HUMAN);
+    int before = history(conversation).size();
 
     Conversation result = service.takeOver(conversation.getId(), businessId, STAFF_ID);
 
-    assertThat(result.getState()).isEqualTo(HUMAN);
     assertThat(result.getAssigneeUserId()).isEqualTo(STAFF_ID);
-    Message system = history(conversation).getLast();
-    assertThat(system.isInternal()).isFalse();
-    assertThat(system.getMetadata()).containsEntry("event", "TAKEN_OVER");
+    assertThat(history(conversation)).hasSize(before);
   }
 
   @Test
@@ -232,7 +245,6 @@ class ConversationServiceTest {
         HUMAN, id -> service.handOff(id, businessId, HandoffReason.COMPLAINT, HANDOFF_ID));
     assertRejected(
         RESOLVED, id -> service.handOff(id, businessId, HandoffReason.COMPLAINT, HANDOFF_ID));
-    assertRejected(AI, id -> service.takeOver(id, businessId, STAFF_ID));
     assertRejected(HUMAN, id -> service.takeOver(id, businessId, 99L));
     assertRejected(RESOLVED, id -> service.takeOver(id, businessId, STAFF_ID));
     assertRejected(AI, id -> service.release(id, businessId, STAFF_ID));

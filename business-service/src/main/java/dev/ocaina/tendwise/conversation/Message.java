@@ -62,6 +62,17 @@ public class Message {
     this.createdAt = Conversation.now();
   }
 
+  /**
+   * A staff message (T44). internal = true is a note for colleagues, never sent to the customer.
+   */
+  public static Message human(
+      UUID conversationId, Long businessId, Long authorUserId, String body, boolean internal) {
+    Message message =
+        new Message(conversationId, businessId, MessageSender.HUMAN, body, internal, Map.of());
+    message.authorUserId = authorUserId;
+    return message;
+  }
+
   public static Message customer(UUID conversationId, Long businessId, String body) {
     return new Message(conversationId, businessId, MessageSender.CUSTOMER, body, false, Map.of());
   }

@@ -199,7 +199,7 @@ message → guard_input → classify_intent → route ─┬─ catalog_question
 | GET | `/orders/{code}/status?phoneLast4=1234` | Status and ETA. Returns 404 if the code does not exist or the phone does not match, without telling the two apart |
 | POST | `/handoffs` | Create handoff: businessSlug, conversationId, reason, summary |
 | GET | `/handoffs?status=OPEN` | List handoffs by status |
-| PATCH | `/handoffs/{id}` | Update status |
+| PATCH | `/handoffs/{id}` | Update status (removed in T44: the status follows the conversation) |
 
 Errors follow RFC 7807 (Problem Details); docs via springdoc/Swagger at `/swagger-ui`.
 

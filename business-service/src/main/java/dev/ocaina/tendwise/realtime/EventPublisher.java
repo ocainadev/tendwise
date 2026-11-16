@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
  * after-commit callback instead would need a second pool connection while the first is still held,
  * which can exhaust the pool under load, and loses the event if the instance stops in between.)
  *
- * <p>Called outside a transaction (ai.typing), the NOTIFY is sent right away.
+ * <p>Called outside a transaction (ai.typing, staff.typing), the NOTIFY is sent right away.
  */
 @Component
 public class EventPublisher {
@@ -59,7 +59,7 @@ public class EventPublisher {
             conversation.getState().name()));
   }
 
-  /** The conversation's assignee changed (taken over or released). */
+  /** The conversation's assignee changed (taken over, assigned or released). */
   public void assigned(Conversation conversation) {
     publish(
         new RealtimeEvent(
@@ -80,6 +80,25 @@ public class EventPublisher {
   /** An AI_REPLY job is asking agent-service. Sent at once, never stored. */
   public void aiTyping(long businessId, UUID conversationId) {
     publish(new RealtimeEvent(businessId, conversationId, EventType.AI_TYPING, null, false, null));
+  }
+
+  /** Staff opened the conversation and marked it read (T44). Panel only. */
+  public void read(Conversation conversation) {
+    publish(
+        new RealtimeEvent(
+            conversation.getBusinessId(),
+            conversation.getId(),
+            EventType.CONVERSATION_READ,
+            null,
+            false,
+            null));
+  }
+
+  /** The assignee is typing (T44). Never stored; firstName is shown in the widget. */
+  public void staffTyping(long businessId, UUID conversationId, String firstName) {
+    publish(
+        new RealtimeEvent(
+            businessId, conversationId, EventType.STAFF_TYPING, null, false, null, firstName));
   }
 
   void publish(RealtimeEvent event) {

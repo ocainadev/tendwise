@@ -4,12 +4,9 @@ import static dev.ocaina.tendwise.conversation.ConversationState.AI;
 import static dev.ocaina.tendwise.conversation.ConversationState.HUMAN;
 import static dev.ocaina.tendwise.conversation.ConversationState.RESOLVED;
 import static dev.ocaina.tendwise.conversation.ConversationState.WAITING;
-import static dev.ocaina.tendwise.handoff.HandoffStatus.IN_PROGRESS;
-import static dev.ocaina.tendwise.handoff.HandoffStatus.OPEN;
 
 import dev.ocaina.tendwise.handoff.HandoffReason;
 import dev.ocaina.tendwise.handoff.HandoffRepository;
-import dev.ocaina.tendwise.handoff.HandoffStatus;
 import dev.ocaina.tendwise.job.Job;
 import dev.ocaina.tendwise.job.JobRepository;
 import dev.ocaina.tendwise.realtime.EventPublisher;
@@ -30,11 +27,13 @@ import org.springframework.transaction.annotation.Transactional;
  * changed the state first: {@link ConversationConflictException}, and nothing is written.
  *
  * <p>A handoff's status follows its conversation in the same transaction (T41): WAITING = OPEN,
- * HUMAN = IN_PROGRESS, RESOLVED or back to AI = RESOLVED.
+ * HUMAN = IN_PROGRESS, RESOLVED or back to AI = RESOLVED. From T44 it also records who took it and
+ * when, the first staff reply, and who ended it.
  *
  * <p>Live events (T40): every stored message sends message.created, every state change sends
- * conversation.state_changed, and an assignee change sends conversation.assigned. They are sent in
- * the same transaction, so PostgreSQL delivers them only after it commits ({@link EventPublisher}).
+ * conversation.state_changed, an assignee change sends conversation.assigned, and marking it read
+ * sends conversation.read. They are sent in the same transaction, so PostgreSQL delivers them only
+ * after it commits ({@link EventPublisher}).
  *
  * <p>An unknown id and an id of another business both throw the same {@link NotFoundException}.
  */
@@ -180,20 +179,60 @@ public class ConversationService {
         Map.of("reason", reason.name(), "handoffId", handoffId));
   }
 
-  /** WAITING → HUMAN: the staff member userId takes over. Two at once: only one wins. */
+  /**
+   * AI or WAITING → HUMAN: the staff member userId takes over (T44). Two at once: only one wins,
+   * the other gets {@link ConversationConflictException}. Taking over a conversation one already
+   * has changes nothing and is not an error.
+   */
   @Transactional
   public Conversation takeOver(UUID conversationId, Long businessId, Long userId) {
     int updated =
-        conversations.changeState(conversationId, businessId, Set.of(WAITING), HUMAN, userId);
+        conversations.changeState(conversationId, businessId, Set.of(AI, WAITING), HUMAN, userId);
+    if (updated == 0) {
+      Conversation current = find(conversationId, businessId);
+      if (current.getState() == HUMAN && userId.equals(current.getAssigneeUserId())) {
+        return current;
+      }
+    }
     Conversation conversation =
         recordTransition(
             updated, conversationId, businessId, SystemEvent.TAKEN_OVER, Map.of("userId", userId));
-    syncHandoffs(conversationId, businessId, Set.of(OPEN), IN_PROGRESS);
+    handoffs.assignOfConversation(conversationId, businessId, userId, Conversation.now());
     events.assigned(conversation);
     return conversation;
   }
 
-  /** WAITING or HUMAN → AI: staff hand the conversation back to the AI. */
+  /**
+   * AI, WAITING or HUMAN → HUMAN, assigned to assigneeUserId by byUserId (T44). From AI or WAITING
+   * the customer sees that a person joined (TAKEN_OVER, with the new assignee); from HUMAN it is a
+   * staff-only ASSIGNED message. Assigning to the current assignee changes nothing. The caller
+   * checks that assigneeUserId is a member of the business.
+   */
+  @Transactional
+  public Conversation assign(
+      UUID conversationId, Long businessId, Long assigneeUserId, Long byUserId) {
+    // The row lock keeps the state read here and the update below together.
+    Conversation current = findForUpdate(conversationId, businessId);
+    if (current.getState() == HUMAN && assigneeUserId.equals(current.getAssigneeUserId())) {
+      return current;
+    }
+    SystemEvent event = current.getState() == HUMAN ? SystemEvent.ASSIGNED : SystemEvent.TAKEN_OVER;
+    int updated =
+        conversations.changeState(
+            conversationId, businessId, Set.of(AI, WAITING, HUMAN), HUMAN, assigneeUserId);
+    Conversation conversation =
+        recordTransition(
+            updated,
+            conversationId,
+            businessId,
+            event,
+            Map.of("userId", assigneeUserId, "byUserId", byUserId));
+    handoffs.assignOfConversation(conversationId, businessId, assigneeUserId, Conversation.now());
+    events.assigned(conversation);
+    return conversation;
+  }
+
+  /** WAITING or HUMAN → AI: staff hand the conversation back to the AI. Queues nothing. */
   @Transactional
   public Conversation release(UUID conversationId, Long businessId, Long userId) {
     int updated =
@@ -201,7 +240,7 @@ public class ConversationService {
     Conversation conversation =
         recordTransition(
             updated, conversationId, businessId, SystemEvent.RELEASED, Map.of("userId", userId));
-    syncHandoffs(conversationId, businessId, Set.of(OPEN, IN_PROGRESS), HandoffStatus.RESOLVED);
+    handoffs.resolveOfConversation(conversationId, businessId, userId, Conversation.now());
     // Back to the AI: nobody is assigned any more.
     events.assigned(conversation);
     return conversation;
@@ -216,8 +255,60 @@ public class ConversationService {
     Conversation conversation =
         recordTransition(
             updated, conversationId, businessId, SystemEvent.RESOLVED, Map.of("userId", userId));
-    syncHandoffs(conversationId, businessId, Set.of(OPEN, IN_PROGRESS), HandoffStatus.RESOLVED);
+    handoffs.resolveOfConversation(conversationId, businessId, userId, Conversation.now());
     return conversation;
+  }
+
+  /**
+   * Stores a staff message (T44). An internal note (internal = true) can be written by any member
+   * in any state and never reaches the customer. A message to the customer needs the conversation
+   * in HUMAN and assigned to userId: another assignee throws {@link NotAssigneeException}, another
+   * state {@link ConversationConflictException}. The first one after a handoff sets its
+   * first_response_at.
+   */
+  @Transactional
+  public Message addStaffMessage(
+      UUID conversationId, Long businessId, Long userId, String body, boolean internal) {
+    Conversation conversation = findForUpdate(conversationId, businessId);
+    if (!internal) {
+      checkAssignee(conversation, userId);
+    }
+    Message message = save(Message.human(conversationId, businessId, userId, body, internal), 0);
+    if (!internal) {
+      handoffs.recordFirstResponse(conversationId, businessId, Conversation.now());
+    }
+    return message;
+  }
+
+  /**
+   * Throws unless userId is the one answering the customer: the conversation is in HUMAN and
+   * assigned to userId. Used for public replies and staff.typing.
+   */
+  @Transactional(readOnly = true)
+  public Conversation requireAssignee(UUID conversationId, Long businessId, Long userId) {
+    Conversation conversation = find(conversationId, businessId);
+    checkAssignee(conversation, userId);
+    return conversation;
+  }
+
+  /** Staff opened the conversation: unread_by_staff goes back to 0 and the panel is told. */
+  @Transactional
+  public Conversation markRead(UUID conversationId, Long businessId) {
+    if (conversations.markRead(conversationId, businessId) == 0) {
+      throw notFound();
+    }
+    Conversation conversation = find(conversationId, businessId);
+    events.read(conversation);
+    return conversation;
+  }
+
+  private static void checkAssignee(Conversation conversation, Long userId) {
+    if (conversation.getState() != HUMAN) {
+      throw new ConversationConflictException(conversation);
+    }
+    if (!userId.equals(conversation.getAssigneeUserId())) {
+      throw new NotAssigneeException(conversation.getAssigneeUserId());
+    }
   }
 
   /**
@@ -239,12 +330,6 @@ public class ConversationService {
     metadata.put("handoffId", handoffId);
     return Optional.of(
         save(Message.system(conversationId, businessId, SystemEvent.AUTO_ACK, metadata), 0));
-  }
-
-  /** Moves the conversation's handoffs along with the state that was just recorded. */
-  private void syncHandoffs(
-      UUID conversationId, Long businessId, Set<HandoffStatus> from, HandoffStatus to) {
-    handoffs.changeStatusOfConversation(conversationId, businessId, from, to, Conversation.now());
   }
 
   /**

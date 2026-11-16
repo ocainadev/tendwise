@@ -199,6 +199,31 @@ class AiReplyJobTest {
   }
 
   @Test
+  void afterAReleaseTheNextCustomerMessageGoesToTheAiWithWhatStaffSaid() throws Exception {
+    // T44: take over, reply, note, release. Release queues nothing; the customer's next message
+    // queues the AI reply, which gets the public staff messages only.
+    User maria = users.save(new User(UUID.randomUUID() + "@joes.test", "x", "Maria", null));
+    UUID id = conversation.getId();
+    conversationService.handOff(id, businessId, HandoffReason.HUMAN_REQUEST, 1L);
+    conversationService.takeOver(id, businessId, maria.getId());
+    conversationService.addStaffMessage(
+        id, businessId, maria.getId(), "Your refund is done.", false);
+    conversationService.addStaffMessage(id, businessId, maria.getId(), "Regular customer", true);
+    conversationService.release(id, businessId, maria.getId());
+    assertThat(jobs.findAll()).isEmpty();
+
+    customerSays("Thanks! And what time do you close?");
+    worker.runNext();
+
+    JsonNode staff =
+        objectMapper.readTree(agentService.received().getFirst().body()).get("staff_messages");
+    assertThat(staff).hasSize(1);
+    assertThat(staff.get(0).get("author").asText()).isEqualTo("Maria");
+    assertThat(staff.get(0).get("body").asText()).isEqualTo("Your refund is done.");
+    assertThat(history().getLast().getSender()).isEqualTo(MessageSender.AI);
+  }
+
+  @Test
   void aHandoffDuringTheCallKeepsWaitingAndStoresTheReply() {
     customerSays("I want to complain");
     agentService.answerAfter(
@@ -243,7 +268,7 @@ class AiReplyJobTest {
     return conversationService.addCustomerMessage(conversation.getId(), businessId, body);
   }
 
-  /** HUMAN messages are written by T44's staff API; here they are inserted directly. */
+  /** Inserts a HUMAN message directly, whatever the state (the staff API checks the state). */
   private void staffSays(User author, String body, boolean internal) {
     jdbc.update(
         """
