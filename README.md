@@ -194,6 +194,18 @@ curl -c cookies.txt -H "Content-Type: application/json" -d "{\"email\": \"owner@
 curl -b cookies.txt http://localhost:8080/auth/me
 ```
 
+To invite someone to the team as that owner (the CSRF header must match the `tendwise_csrf` cookie in `cookies.txt`):
+
+```bash
+curl -b cookies.txt -H "X-CSRF-Token: $(awk '$6 == "tendwise_csrf" {print $7}' cookies.txt)" -H "Content-Type: application/json" -d '{"email": "new.agent@example.com", "role": "AGENT"}' http://localhost:8080/api/v1/panel/joes-pizza/invitations
+```
+
+No email is sent yet (T69): business-service logs `invitation email sent to n***@example.com` and the link without its token. Locally, set `EMAIL_LOG_LINKS=true` in `.env` to log the full link (`…/invitations/accept#token=…`), then accept it with the token:
+
+```bash
+curl -H "Content-Type: application/json" -d '{"token": "<token from the log>", "name": "New Agent", "password": "a-long-password"}' http://localhost:8080/auth/invitations/accept
+```
+
 Its tests need Docker (Testcontainers):
 
 ```bash
