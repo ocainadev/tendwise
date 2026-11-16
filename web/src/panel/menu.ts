@@ -2,9 +2,9 @@ import type { MembershipRole } from '../api/auth'
 
 // The business panel areas, in menu order. `roles` follows the Panel API
 // table in docs/architecture.md: AGENT works the inbox and reads knowledge
-// and the catalog; everything else is OWNER only. The inbox (T45) and knowledge (T51) are done;
-// each other area is a placeholder until its task lands (catalog T52, orders T57,
-// dashboard T60, settings T53, team T34).
+// and the catalog; everything else is OWNER only. The inbox (T45), knowledge
+// (T51), settings and team (T55) are done; each other area is a placeholder
+// until its task lands (catalog T52, orders T57, dashboard T60).
 
 export interface PanelArea {
   path: string

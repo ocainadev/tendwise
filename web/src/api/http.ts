@@ -8,7 +8,7 @@
 // - one automatic POST /auth/refresh when a request gets 401 (the 15-minute
 //   access token expired), followed by a single retry of that request.
 
-import { ApiError } from './client'
+import { ApiError, type Problem } from './client'
 
 const CSRF_COOKIE = 'tendwise_csrf'
 const CSRF_HEADER = 'X-CSRF-Token'
@@ -75,13 +75,27 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
   }
 }
 
+// Throws ApiError for a non-2xx response. business-service errors are RFC 7807
+// problems; the UI shows its own translated text, so only the status, the
+// title and the invalid fields are kept.
+export async function throwIfNotOk(response: Response): Promise<void> {
+  if (response.ok) {
+    return
+  }
+  let problem: Problem = {}
+  try {
+    const body = await response.json()
+    problem = { title: body?.title, errors: Array.isArray(body?.errors) ? body.errors : undefined }
+  } catch {
+    // No JSON body (e.g. a proxy error page): the status is enough.
+  }
+  throw new ApiError(`HTTP ${response.status}`, response.status, problem)
+}
+
 // Like apiFetch, but returns the parsed JSON body and throws ApiError for any
-// non-2xx status. business-service errors are RFC 7807 problems; the UI shows
-// its own translated text, so only the status matters here.
+// non-2xx status.
 export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await apiFetch(path, init)
-  if (!response.ok) {
-    throw new ApiError(`HTTP ${response.status}`, response.status)
-  }
+  await throwIfNotOk(response)
   return (await response.json()) as T
 }

@@ -9,16 +9,21 @@ import { KnowledgeArea } from './knowledge/KnowledgeArea'
 import { BusinessChooserPage } from './pages/BusinessChooserPage'
 import { ComingSoonPage } from './pages/ComingSoonPage'
 import { LoginPage } from './pages/LoginPage'
+import { AcceptInvitationPage } from './pages/AcceptInvitationPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { DEFAULT_PANEL_AREA, PANEL_AREAS, type PanelArea } from './panel/menu'
 import { PanelLayout } from './panel/PanelLayout'
 import { RequireRole } from './panel/RequireRole'
+import { SettingsPage } from './settings/SettingsPage'
+import { TeamPage } from './settings/TeamPage'
 
 // The page of a panel area; areas whose task is not done yet are placeholders.
 // The knowledge area has pages of its own (list, editor), hence its "/*".
 const AREA_PAGES: Record<string, { path: string; element: ReactNode }> = {
   inbox: { path: 'inbox', element: <InboxPage /> },
   knowledge: { path: 'knowledge/*', element: <KnowledgeArea /> },
+  settings: { path: 'settings', element: <SettingsPage /> },
+  team: { path: 'team', element: <TeamPage /> },
 }
 
 function areaRoute(area: PanelArea, title: string) {
@@ -43,6 +48,8 @@ export function App() {
       <Route path="/" element={<Navigate to="/demo" replace />} />
       <Route path="/demo" element={<Chat />} />
       <Route path="/login" element={<LoginPage />} />
+      {/* The link in the invitation email (T34): public, the token is in the #fragment. */}
+      <Route path="/invitations/accept" element={<AcceptInvitationPage />} />
 
       <Route element={<RequireAuth />}>
         <Route path="/app" element={<BusinessChooserPage />} />

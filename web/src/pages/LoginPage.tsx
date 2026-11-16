@@ -14,6 +14,11 @@ function returnPath(state: unknown): string | null {
   return from.pathname + from.search + from.hash
 }
 
+// The accept-invitation page sends the business's name along.
+function invitedTo(state: unknown): string | null {
+  return (state as { invitedTo?: string } | null)?.invitedTo ?? null
+}
+
 export function LoginPage() {
   const { t } = useTranslation()
   const location = useLocation()
@@ -47,10 +52,13 @@ export function LoginPage() {
     }
   }
 
+  const business = invitedTo(location.state)
+
   return (
     <CenteredMessage>
       <main className="shell-card">
         <h1>{t('login.title')}</h1>
+        {business && <p role="status">{t('invitation.accepted', { business })}</p>}
         <form className="shell-form" onSubmit={handleSubmit}>
           <label className="shell-field">
             {t('login.email')}
