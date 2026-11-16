@@ -52,10 +52,13 @@ class PanelTenantIsolationTest {
 
   static final List<PanelRoute> ROUTES =
       List.of(
-          // Test-only routes (TestPanelRoutes), until the first real panel route (T43).
+          // Test-only routes (TestPanelRoutes), used by PanelAuthorizationTest.
           new PanelRoute(HttpMethod.GET, TestPanelRoutes.MEMBER_ROUTE),
           new PanelRoute(HttpMethod.POST, TestPanelRoutes.MEMBER_ROUTE),
-          new PanelRoute(HttpMethod.POST, TestPanelRoutes.OWNER_ROUTE));
+          new PanelRoute(HttpMethod.POST, TestPanelRoutes.OWNER_ROUTE),
+          // Inbox, read side (T43).
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/conversations"),
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/conversations/{id}"));
 
   @Autowired private MockMvc mockMvc;
   @Autowired private AccessTokens accessTokens;
