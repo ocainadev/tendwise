@@ -52,7 +52,7 @@ class PanelTenantIsolationTest {
 
   static final List<PanelRoute> ROUTES =
       List.of(
-          // Test-only routes (TestPanelRoutes), until the first real panel route (T43).
+          // Test-only routes (TestPanelRoutes), used by PanelAuthorizationTest.
           new PanelRoute(HttpMethod.GET, TestPanelRoutes.MEMBER_ROUTE),
           new PanelRoute(HttpMethod.POST, TestPanelRoutes.MEMBER_ROUTE),
           new PanelRoute(HttpMethod.POST, TestPanelRoutes.OWNER_ROUTE),
@@ -65,6 +65,9 @@ class PanelTenantIsolationTest {
           new PanelRoute(HttpMethod.DELETE, "/api/v1/panel/{slug}/invitations/{id}"),
           // T40: the panel's live stream (SSE).
           new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/events"),
+          // T43: inbox, read side.
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/conversations"),
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/conversations/{id}"),
           // T53: settings.
           new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/settings"),
           new PanelRoute(HttpMethod.PUT, "/api/v1/panel/{slug}/settings"));
