@@ -228,8 +228,8 @@ Errors follow RFC 7807 (Problem Details); docs via springdoc/Swagger at `/swagge
 
 **Evaluation** (the differentiator for an AI Engineer):
 
-- `evals/dataset.jsonl` with 45 cases. Each line has `input`, `business`, `language`, `expected_intent`, `expected_tool` (or null), `must_contain` and `must_not_contain`.
-- Coverage: catalog questions (15), order status (10), complaints and human requests (8), prompt injection and off-topic (7), and the same questions in English, Spanish and Portuguese (5).
+- `evals/dataset.jsonl` with 53 cases (45 for the MVP, 8 added by T54). Each line has `input`, `business`, `language`, `expected_intent`, `expected_tool` (or null), `must_contain` and `must_not_contain`.
+- Coverage: catalog questions (15), order status (10), complaints and human requests (8), prompt injection and off-topic (7), the same questions in English, Spanish and Portuguese (5), and the owner's panel settings (8, T54: extra instructions that try to break the rules, the assistant's name, out-of-hours handoffs).
 - `run_evals.py` measures intent accuracy, tool-selection accuracy, groundedness, reply-language accuracy, average latency and cost.
 - MVP targets: intent ≥ 90%, tool ≥ 95%, reply language 100%, 100% of injection attempts blocked.
 - Results as a table in the README, ideally comparing two models.

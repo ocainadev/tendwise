@@ -1,6 +1,6 @@
 # Tendwise
 
-> **Em português:** o Tendwise é um atendente de IA que qualquer pequeno negócio pode ligar ao chat com seus clientes. Ele responde com base no catálogo, nas perguntas frequentes e nas políticas da própria loja (RAG), mostrando as fontes. Também consulta o status de pedidos numa API real (tool calling) e passa a conversa para uma pessoa quando o cliente pede ou está insatisfeito. Fala português, espanhol e inglês, registra tokens, latência e custo de cada resposta e é medido com um conjunto de 45 avaliações. Para rodar: copie `.env.example` para `.env`, preencha as chaves e rode `docker compose up --build`. Depois abra http://localhost:5173.
+> **Em português:** o Tendwise é um atendente de IA que qualquer pequeno negócio pode ligar ao chat com seus clientes. Ele responde com base no catálogo, nas perguntas frequentes e nas políticas da própria loja (RAG), mostrando as fontes. Também consulta o status de pedidos numa API real (tool calling) e passa a conversa para uma pessoa quando o cliente pede ou está insatisfeito. Fala português, espanhol e inglês, registra tokens, latência e custo de cada resposta e é medido com um conjunto de 53 avaliações. Para rodar: copie `.env.example` para `.env`, preencha as chaves e rode `docker compose up --build`. Depois abra http://localhost:5173.
 
 An AI clerk that any small business can plug into its customer chat.
 
@@ -15,7 +15,7 @@ Small businesses (shops, restaurants, salons, pharmacies) lose sales because the
 - checks order status through a real API (tool calling), after checking the last 4 digits of the customer's phone;
 - hands off to a human when the customer complains, is upset or asks for a person;
 - blocks prompt injection, masks phone numbers, and logs tokens, latency and cost per reply;
-- is measured against a 45-case evaluation dataset with the real model ([results](#eval-results)).
+- is measured against a 53-case evaluation dataset with the real model ([results](#eval-results)).
 
 The MVP has a web chat and two demo businesses: **Joe's Pizza**, a pizzeria with English content, and **Denim Corner**, a clothing store with Portuguese content.
 
@@ -108,7 +108,7 @@ If the chat answers "Assistant temporarily unavailable", the selected provider's
 
 ## Eval results
 
-`agent-service/evals/dataset.jsonl` has 45 customer messages:
+`agent-service/evals/dataset.jsonl` has 53 customer messages:
 
 | Category | Cases |
 |---|---|
@@ -117,10 +117,11 @@ If the chat answers "Assistant temporarily unavailable", the selected provider's
 | Complaints and requests for a person | 8 |
 | Prompt injection and off-topic | 7 |
 | The same questions across English, Spanish and Portuguese | 5 |
+| Owner settings: instructions that try to break the rules, out-of-hours handoff | 8 |
 
 About a third of the cases are in Portuguese. Each case says which intent, tool and facts are expected. `evals/run_evals.py` sends every case through the real agent, as a new conversation: the real LLM, pgvector retrieval, business-service tools and Postgres memory.
 
-Results on 2026-11-13, on the same code and dataset (full reports in [`agent-service/evals/results/`](agent-service/evals/results/)):
+Results on 2026-11-13, on the first 45 cases, before the owner-settings cases were added (full reports in [`agent-service/evals/results/`](agent-service/evals/results/)):
 
 | Metric | MVP target | gpt-6-luna (default) | gpt-5.4-mini |
 |---|---|---|---|

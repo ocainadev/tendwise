@@ -6,6 +6,8 @@ missing order code. A fixed text is free, instant and always correct, which is
 better than paying an LLM to say the same sentence.
 """
 
+from datetime import datetime
+
 from app.agent.intent import Language
 
 FIXED_REPLIES: dict[str, dict[str, str]] = {
@@ -54,9 +56,101 @@ FIXED_REPLIES: dict[str, dict[str, str]] = {
         "pt": "Passei sua conversa para a nossa equipe. Uma pessoa vai continuar o "
         "atendimento aqui em breve.",
     },
+    # Handoff outside opening hours (T54). `{reopening}` is filled by reopening_text().
+    "handoff_closed": {
+        "en": "I have passed your conversation to our team. We are closed right now "
+        "and will be back {reopening}.",
+        "es": "He pasado tu conversación a nuestro equipo. Ahora estamos cerrados "
+        "y volvemos {reopening}.",
+        "pt": "Passei sua conversa para a nossa equipe. No momento estamos fechados "
+        "e voltamos {reopening}.",
+    },
+    "handoff_closed_no_time": {
+        "en": "I have passed your conversation to our team. We are closed right now, "
+        "and a person will reply here as soon as the team is back.",
+        "es": "He pasado tu conversación a nuestro equipo. Ahora estamos cerrados "
+        "y una persona te responderá aquí en cuanto el equipo vuelva.",
+        "pt": "Passei sua conversa para a nossa equipe. No momento estamos fechados "
+        "e uma pessoa vai responder aqui assim que a equipe voltar.",
+    },
+    # Sent after handoff_closed when the business has no out-of-hours message.
+    "leave_contact": {
+        "en": "If you like, leave a phone number or e-mail here and we will get back to you.",
+        "es": "Si quieres, deja aquí un teléfono o un correo y te contactaremos.",
+        "pt": "Se quiser, deixe aqui um telefone ou e-mail e entraremos em contato.",
+    },
 }
 
+# Day names for reopening_text(), Monday first (like datetime.weekday()).
+# Portuguese and Spanish include the preposition: "na terça-feira", "el martes".
+WEEKDAYS: dict[str, list[str]] = {
+    "en": [
+        "on Monday",
+        "on Tuesday",
+        "on Wednesday",
+        "on Thursday",
+        "on Friday",
+        "on Saturday",
+        "on Sunday",
+    ],
+    "es": [
+        "el lunes",
+        "el martes",
+        "el miércoles",
+        "el jueves",
+        "el viernes",
+        "el sábado",
+        "el domingo",
+    ],
+    "pt": [
+        "na segunda-feira",
+        "na terça-feira",
+        "na quarta-feira",
+        "na quinta-feira",
+        "na sexta-feira",
+        "no sábado",
+        "no domingo",
+    ],
+}
+TODAY = {"en": "today", "es": "hoy", "pt": "hoje"}
+TOMORROW = {"en": "tomorrow", "es": "mañana", "pt": "amanhã"}
 
-def fixed_reply(name: str, language: Language) -> str:
-    """The fixed reply `name` in `language` (a typo in `name` raises KeyError at once)."""
-    return FIXED_REPLIES[name][language]
+
+def fixed_reply(name: str, language: Language, **values: str) -> str:
+    """The fixed reply `name` in `language` (a typo in `name` raises KeyError at once).
+
+    `values` fill the reply's placeholders, e.g. `reopening="tomorrow at 11:00 am"`.
+    """
+    text = FIXED_REPLIES[name][language]
+    return text.format(**values) if values else text
+
+
+def clock_time(moment: datetime, language: Language) -> str:
+    """The time of day as people write it: "11:00 am" in English, "11:00" in pt and es."""
+    if language == "en":
+        hour = moment.hour % 12 or 12
+        return f"{hour}:{moment:%M} {'am' if moment.hour < 12 else 'pm'}"
+    return f"{moment:%H:%M}"
+
+
+def reopening_text(reopens_at: datetime, now: datetime, language: Language) -> str:
+    """When the team is back, e.g. "amanhã às 09:00" or "on Tuesday at 11:00 am".
+
+    Both datetimes must be in the business's time zone, so "today" and
+    "tomorrow" are the business's days, not the server's.
+    """
+    days = (reopens_at.date() - now.date()).days
+    if days == 0:
+        day = TODAY[language]
+    elif days == 1:
+        day = TOMORROW[language]
+    else:
+        day = WEEKDAYS[language][reopens_at.weekday()]
+
+    time_text = clock_time(reopens_at, language)
+    singular = reopens_at.hour == 1  # "a la 01:00" / "à 01:00", but "a las 11:00" / "às 11:00"
+    if language == "pt":
+        return f"{day} {'à' if singular else 'às'} {time_text}"
+    if language == "es":
+        return f"{day} {'a la' if singular else 'a las'} {time_text}"
+    return f"{day} at {time_text}"

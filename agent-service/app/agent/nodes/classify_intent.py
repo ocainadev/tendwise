@@ -6,11 +6,14 @@ phone digits the customer gave, so they are not asked for again.
 
 The classifier sometimes misses phone digits written in the same message as
 the order code, so for order questions a small regex fills them in.
+
+The detected language is replaced by the business's default language when the
+owner did not enable it (T54), so the whole turn replies in one allowed language.
 """
 
 from app.agent.deps import AgentDeps
 from app.agent.intent import classify_intent, phone_last4_in
-from app.agent.state import AgentState
+from app.agent.state import AgentState, enabled_language
 
 
 def run(state: AgentState, deps: AgentDeps) -> dict:
@@ -18,6 +21,8 @@ def run(state: AgentState, deps: AgentDeps) -> dict:
         deps.llm, state["message"], state["history"], state["default_language"]
     )
     result = outcome.result
+    # Reply only in a language the owner enabled (T54); every later node reads this one.
+    result = result.model_copy(update={"language": enabled_language(result.language, state)})
 
     if result.sentiment == "negative":
         negative_streak = state["negative_streak"] + 1

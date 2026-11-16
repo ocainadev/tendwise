@@ -24,6 +24,7 @@ STATE_CLASSES = [
     ("app.rag.retriever", "RetrievedChunk"),
     ("app.agent.state", "Source"),
     ("app.agent.staff", "StaffMessage"),
+    ("app.gateways.business_gateway", "AssistantSettings"),
 ]
 
 

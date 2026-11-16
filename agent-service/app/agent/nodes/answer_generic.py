@@ -4,11 +4,11 @@ It stays in the business's scope: it greets, says what it can help with, and
 politely declines off-topic requests (poems, homework, other companies).
 """
 
+from app.agent.business_instructions import answer_system_prompt
 from app.agent.deps import AgentDeps
 from app.agent.prompt_input import history_text, tagged
 from app.agent.state import AgentState
 from app.llm.client import Message
-from app.prompts import load_prompt
 
 
 def run(state: AgentState, deps: AgentDeps) -> dict:
@@ -20,6 +20,7 @@ def run(state: AgentState, deps: AgentDeps) -> dict:
         ]
     )
     response = deps.llm.complete(
-        load_prompt("answer_generic"), [Message(role="user", content=user_input)]
+        answer_system_prompt("answer_generic", state["assistant"]),
+        [Message(role="user", content=user_input)],
     )
     return {"reply": response.text.strip(), "llm_usage": state["llm_usage"] + [response]}
