@@ -364,6 +364,10 @@ def test_startup_with_openai_but_no_openai_key_names_that_key(
     assert "OPENAI_API_KEY is not set" in caplog.text
 
 
+async def no_job_worker(settings: Settings, connect: object) -> None:
+    """Stands in for the job worker, which would load the real embedding model."""
+
+
 @pytest.fixture
 def started_app(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """The real lifespan with a database that is down."""
@@ -373,6 +377,7 @@ def started_app(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Iterator
 
     monkeypatch.setattr(main, "migrate_database", lambda: None)
     monkeypatch.setattr(main, "ingest_documents", lambda s: None)
+    monkeypatch.setattr(main, "run_job_worker", no_job_worker)
     monkeypatch.setattr(main, "create_agent_service", database_down)
     monkeypatch.setattr(main, "get_settings", lambda: configured(settings))
     monkeypatch.setattr(main.HttpBusinessGateway, "from_settings", lambda s: FakeGateway())
