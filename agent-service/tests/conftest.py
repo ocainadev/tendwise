@@ -46,7 +46,9 @@ def conn(database_url: str) -> Iterator[psycopg.Connection]:
     with psycopg.connect(database_url) as connection:
         apply_migrations(connection)
         register_vector(connection)
-        connection.execute("TRUNCATE agent.documents, agent.chunks, agent.jobs")
+        connection.execute(
+            "TRUNCATE agent.documents, agent.chunks, agent.jobs, agent.knowledge_gaps"
+        )
         connection.commit()
         yield connection
 

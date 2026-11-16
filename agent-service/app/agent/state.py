@@ -47,6 +47,9 @@ class AgentState(TypedDict):
     business_name: str
     default_language: Language
     conversation_id: str
+    # Where the conversation happens: "web", "whatsapp", or "playground" for
+    # the knowledge page's test chat (T51), which records no knowledge gaps (T58).
+    channel: str
 
     # --- persistent: survive across turns of the same conversation ---
     # Every customer message and final reply, oldest first (user, assistant, ...),
@@ -87,6 +90,7 @@ def new_turn_input(
     default_language: Language,
     conversation_id: str,
     message: str,
+    channel: str = "web",
 ) -> dict:
     """The input of one turn: business data, the new message, and every per-turn field reset.
 
@@ -98,6 +102,7 @@ def new_turn_input(
         "business_name": business_name,
         "default_language": default_language,
         "conversation_id": conversation_id,
+        "channel": channel,
         "message": message,
         "started_at": time.monotonic(),
         "intent": None,

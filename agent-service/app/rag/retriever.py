@@ -118,14 +118,14 @@ class PgVectorRetriever:
         return relevant
 
 
-def create_retriever(settings: Settings) -> Retriever:
+def create_retriever(settings: Settings, embedder: Embedder | None = None) -> Retriever:
     """Build the retriever configured by the settings.
 
-    Creating it loads the embedding model (a second or two), so build it once
-    and reuse it for every question.
+    Creating it loads the embedding model (a second or two) unless one is
+    passed, so build it once and reuse it for every question.
     """
     return PgVectorRetriever(
-        embedder=create_embedder(settings),
+        embedder=embedder or create_embedder(settings),
         connect=connection_factory(settings.database_url.get_secret_value()),
         min_similarity=settings.rag_min_similarity,
     )

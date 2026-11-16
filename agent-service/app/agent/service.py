@@ -26,6 +26,8 @@ from app.gateways.business_gateway import BusinessInfo, HttpBusinessGateway
 from app.llm.client import LLMResponse
 from app.llm.factory import create_llm_client
 from app.observability.turn_log import PostgresTurnLogger
+from app.rag.embeddings import create_embedder
+from app.rag.knowledge_gaps import PostgresGapRecorder
 from app.rag.retriever import create_retriever
 
 
@@ -62,6 +64,7 @@ class AgentService:
         business: BusinessInfo,
         message: str,
         staff_messages: list[StaffMessage] | None = None,
+        channel: str = "web",
     ) -> TurnResult:
         """Answer one customer message of the conversation `conversation_id`.
 
@@ -77,6 +80,7 @@ class AgentService:
             default_language=business.default_language,
             conversation_id=str(conversation_id),
             message=message,
+            channel=channel,
         )
         saved = self._graph.get_state(config).values
         # First turn of this conversation: start with empty memory.
@@ -120,14 +124,16 @@ def create_agent_service(settings: Settings) -> AgentService:
     Slow (it loads the embedding model and connects to the database), so call
     it once at startup and reuse the service for every request.
     """
+    database_url = settings.database_url.get_secret_value()
+    # One embedding model (slow to load) for the retriever and the gap recorder.
+    embedder = create_embedder(settings)
     deps = AgentDeps(
         llm=create_llm_client(settings),
-        retriever=create_retriever(settings),
+        retriever=create_retriever(settings, embedder),
         gateway=HttpBusinessGateway.from_settings(settings),
         top_k=settings.rag_top_k,
-        turn_logger=PostgresTurnLogger(
-            connection_factory(settings.database_url.get_secret_value())
-        ),
+        turn_logger=PostgresTurnLogger(connection_factory(database_url)),
+        gap_recorder=PostgresGapRecorder(embedder, connection_factory(database_url)),
     )
-    checkpointer = create_postgres_checkpointer(settings.database_url.get_secret_value())
+    checkpointer = create_postgres_checkpointer(database_url)
     return AgentService(build_graph(deps, checkpointer))

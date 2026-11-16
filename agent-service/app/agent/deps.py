@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from app.gateways.business_gateway import BusinessGateway
 from app.llm.client import LLMClient
 from app.observability.turn_log import NoOpTurnLogger, TurnLogger
+from app.rag.knowledge_gaps import GapRecorder, NoOpGapRecorder
 from app.rag.retriever import Retriever
 
 
@@ -21,3 +22,5 @@ class AgentDeps:
     top_k: int = 5
     # Where `log_turn` stores each turn (T12). Stores nothing unless one is passed.
     turn_logger: TurnLogger = field(default_factory=NoOpTurnLogger)
+    # Where `retrieve` stores unanswered catalog questions (T58). Default: nowhere.
+    gap_recorder: GapRecorder = field(default_factory=NoOpGapRecorder)

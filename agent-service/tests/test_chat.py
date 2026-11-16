@@ -25,6 +25,7 @@ from app.gateways.business_gateway import BusinessInfo, HttpBusinessGateway
 from app.llm.client import LLMResponse, Message
 from app.main import create_app
 from app.observability.turn_log import PostgresTurnLogger
+from app.rag.knowledge_gaps import PostgresGapRecorder
 from tests.agent.agent_fakes import (
     BUSINESS,
     FakeGateway,
@@ -33,6 +34,7 @@ from tests.agent.agent_fakes import (
     classification,
     make_service,
 )
+from tests.rag_helpers import BagOfWordsEmbedder
 
 OTHER_BUSINESS = BusinessInfo(
     slug="denim-corner",
@@ -302,7 +304,8 @@ def test_startup_agent_writes_turns_to_postgres(
         built.append(deps)
         return build_graph(deps, create_memory_checkpointer())
 
-    monkeypatch.setattr(service_module, "create_retriever", lambda s: FakeRetriever([]))
+    monkeypatch.setattr(service_module, "create_embedder", lambda s: BagOfWordsEmbedder())
+    monkeypatch.setattr(service_module, "create_retriever", lambda s, e: FakeRetriever([]))
     monkeypatch.setattr(service_module, "create_postgres_checkpointer", lambda url: None)
     monkeypatch.setattr(service_module, "build_graph", capture_graph)
     app = FastAPI()
@@ -311,6 +314,7 @@ def test_startup_agent_writes_turns_to_postgres(
 
     assert isinstance(app.state.agent_service, AgentService)
     assert isinstance(built[0].turn_logger, PostgresTurnLogger)
+    assert isinstance(built[0].gap_recorder, PostgresGapRecorder)
 
 
 def test_startup_without_llm_key_skips_the_agent_service(

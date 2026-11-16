@@ -97,10 +97,24 @@ class FakeGateway:
         return 42
 
 
+class FakeGapRecorder:
+    """Remembers the knowledge gaps instead of storing them; can be told to fail."""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.recorded: list[tuple[str, str]] = []
+        self._fail = fail
+
+    def record(self, business_id: str, question: str) -> None:
+        if self._fail:
+            raise RuntimeError("database is down")
+        self.recorded.append((business_id, question))
+
+
 def make_service(
     llm: FakeLLM,
     retriever: FakeRetriever | None = None,
     gateway: FakeGateway | None = None,
+    gap_recorder: "FakeGapRecorder | None" = None,
 ) -> AgentService:
     """An AgentService over the real graph, with fakes and in-memory checkpoints."""
     deps = AgentDeps(
@@ -108,5 +122,6 @@ def make_service(
         retriever=retriever or FakeRetriever([]),
         gateway=gateway or FakeGateway(),
         top_k=5,
+        gap_recorder=gap_recorder or FakeGapRecorder(),
     )
     return AgentService(build_graph(deps, create_memory_checkpointer()))
