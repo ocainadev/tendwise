@@ -10,11 +10,15 @@ import dev.ocaina.tendwise.conversation.ConversationService;
 import dev.ocaina.tendwise.conversation.Message;
 import dev.ocaina.tendwise.conversation.MessageRepository;
 import dev.ocaina.tendwise.conversation.MessageSender;
+import dev.ocaina.tendwise.realtime.EventStreams;
+import dev.ocaina.tendwise.realtime.EventType;
+import dev.ocaina.tendwise.realtime.RealtimeEvent;
 import dev.ocaina.tendwise.shared.NotFoundException;
 import dev.ocaina.tendwise.user.User;
 import dev.ocaina.tendwise.user.UserRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,6 +28,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * The public conversation API used by the website chat widget (T38).
@@ -49,6 +54,7 @@ public class PublicConversationService {
   private final UserRepository users;
   private final ConversationService conversationService;
   private final IpRateLimiter ipRateLimiter;
+  private final EventStreams eventStreams;
   private final int conversationLimit;
   private final Duration conversationWindow;
 
@@ -59,6 +65,7 @@ public class PublicConversationService {
       UserRepository users,
       ConversationService conversationService,
       IpRateLimiter ipRateLimiter,
+      EventStreams eventStreams,
       @Value("${tendwise.public-api.conversation-limit}") int conversationLimit,
       @Value("${tendwise.public-api.conversation-window}") Duration conversationWindow) {
     this.businesses = businesses;
@@ -67,6 +74,7 @@ public class PublicConversationService {
     this.users = users;
     this.conversationService = conversationService;
     this.ipRateLimiter = ipRateLimiter;
+    this.eventStreams = eventStreams;
     this.conversationLimit = conversationLimit;
     this.conversationWindow = conversationWindow;
   }
@@ -135,6 +143,46 @@ public class PublicConversationService {
     return found.stream()
         .map(message -> PublicMessage.from(message, authorName(message, firstNames)))
         .toList();
+  }
+
+  /**
+   * Opens the conversation's live stream (T40), with the same checks as the history: token (404),
+   * then origin (403). lastEventId: the newest message id the widget has, sent by the browser on a
+   * reconnect. The stream then first replays message.created for each newer message the customer
+   * may see (at most one history page; the widget fetches them with the history call) and the
+   * current state.
+   */
+  @Transactional(readOnly = true)
+  public SseEmitter openEventStream(
+      UUID conversationId, String authorization, Long lastEventId, String origin) {
+    Conversation conversation = findByToken(conversationId, authorization);
+    Long businessId = conversation.getBusinessId();
+    checkOrigin(findBusiness(businessId), origin);
+
+    List<RealtimeEvent> missed = new ArrayList<>();
+    if (lastEventId != null) {
+      for (Message message :
+          messages.findVisibleAfter(
+              conversationId, businessId, lastEventId, Limit.of(HISTORY_PAGE_SIZE))) {
+        missed.add(
+            new RealtimeEvent(
+                businessId,
+                conversationId,
+                EventType.MESSAGE_CREATED,
+                message.getId(),
+                false,
+                null));
+      }
+      missed.add(
+          new RealtimeEvent(
+              businessId,
+              conversationId,
+              EventType.CONVERSATION_STATE_CHANGED,
+              null,
+              false,
+              conversation.getState().name()));
+    }
+    return eventStreams.openWidgetStream(businessId, conversationId, missed);
   }
 
   /** Only HUMAN messages have an author (Map.get(null) would throw on an immutable map). */

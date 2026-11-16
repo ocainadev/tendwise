@@ -24,7 +24,9 @@ public final class PublicApiCors {
     CorsConfiguration config = new CorsConfiguration();
     config.setAllowedOrigins(List.of(CorsConfiguration.ALL));
     config.setAllowedMethods(List.of("GET", "POST"));
-    config.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE));
+    // Last-Event-ID: the widget's live stream (T40) sends it when it reconnects.
+    config.setAllowedHeaders(
+        List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE, "Last-Event-ID"));
     config.setAllowCredentials(false);
     config.setMaxAge(Duration.ofMinutes(10));
 

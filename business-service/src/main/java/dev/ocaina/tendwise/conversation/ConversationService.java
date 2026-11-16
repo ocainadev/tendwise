@@ -12,6 +12,7 @@ import dev.ocaina.tendwise.handoff.HandoffRepository;
 import dev.ocaina.tendwise.handoff.HandoffStatus;
 import dev.ocaina.tendwise.job.Job;
 import dev.ocaina.tendwise.job.JobRepository;
+import dev.ocaina.tendwise.realtime.EventPublisher;
 import dev.ocaina.tendwise.shared.NotFoundException;
 import java.util.HashMap;
 import java.util.Map;
@@ -31,6 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>A handoff's status follows its conversation in the same transaction (T41): WAITING = OPEN,
  * HUMAN = IN_PROGRESS, RESOLVED or back to AI = RESOLVED.
  *
+ * <p>Live events (T40): every stored message sends message.created, every state change sends
+ * conversation.state_changed, and an assignee change sends conversation.assigned. They are sent in
+ * the same transaction, so PostgreSQL delivers them only after it commits ({@link EventPublisher}).
+ *
  * <p>An unknown id and an id of another business both throw the same {@link NotFoundException}.
  */
 @Service
@@ -40,16 +45,19 @@ public class ConversationService {
   private final MessageRepository messages;
   private final JobRepository jobs;
   private final HandoffRepository handoffs;
+  private final EventPublisher events;
 
   public ConversationService(
       ConversationRepository conversations,
       MessageRepository messages,
       JobRepository jobs,
-      HandoffRepository handoffs) {
+      HandoffRepository handoffs,
+      EventPublisher events) {
     this.conversations = conversations;
     this.messages = messages;
     this.jobs = jobs;
     this.handoffs = handoffs;
+    this.events = events;
   }
 
   /** Starts a conversation in state AI. tokenHash is null for channels without a token. */
@@ -151,7 +159,9 @@ public class ConversationService {
     }
     Map<String, Object> metadata = Map.of("event", SystemEvent.AI_FAILED.name());
     save(Message.system(conversationId, businessId, SystemEvent.AI_FAILED, metadata), 0);
-    return Optional.of(find(conversationId, businessId));
+    Conversation conversation = find(conversationId, businessId);
+    events.stateChanged(conversation);
+    return Optional.of(conversation);
   }
 
   /**
@@ -179,6 +189,7 @@ public class ConversationService {
         recordTransition(
             updated, conversationId, businessId, SystemEvent.TAKEN_OVER, Map.of("userId", userId));
     syncHandoffs(conversationId, businessId, Set.of(OPEN), IN_PROGRESS);
+    events.assigned(conversation);
     return conversation;
   }
 
@@ -191,6 +202,8 @@ public class ConversationService {
         recordTransition(
             updated, conversationId, businessId, SystemEvent.RELEASED, Map.of("userId", userId));
     syncHandoffs(conversationId, businessId, Set.of(OPEN, IN_PROGRESS), HandoffStatus.RESOLVED);
+    // Back to the AI: nobody is assigned any more.
+    events.assigned(conversation);
     return conversation;
   }
 
@@ -251,14 +264,20 @@ public class ConversationService {
     Map<String, Object> metadata = new HashMap<>(details);
     metadata.put("event", event.name());
     save(Message.system(conversationId, businessId, event, metadata), 0);
-    return find(conversationId, businessId);
+    Conversation conversation = find(conversationId, businessId);
+    events.stateChanged(conversation);
+    return conversation;
   }
 
-  /** Stores a message and moves the conversation's last_message_at (and unread count). */
+  /**
+   * Stores a message, moves the conversation's last_message_at (and unread count) and sends
+   * message.created. Every message goes through here, so every one sends its event.
+   */
   private Message save(Message message, int unread) {
     Message saved = messages.save(message);
     conversations.recordMessage(
         saved.getConversationId(), saved.getBusinessId(), saved.getCreatedAt(), unread);
+    events.messageCreated(saved);
     return saved;
   }
 

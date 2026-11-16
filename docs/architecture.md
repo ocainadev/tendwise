@@ -586,3 +586,12 @@ Why: [ADR 0004](adr/0004-realtime-and-jobs.md).
 | `ai.typing` | An `AI_REPLY` job starts | Yes | Yes |
 
 `staff.typing` and `ai.typing` are sent with `NOTIFY` only and never stored.
+
+- **As built (T40):** package `dev.ocaina.tendwise.realtime`.
+  - `EventPublisher` runs `pg_notify('events', …)` inside the transaction that stores the change; PostgreSQL delivers it only after that transaction commits and drops it on rollback. Outside a transaction (`ai.typing`) it goes out at once. `ConversationService` publishes `message.created` for every stored message, `conversation.state_changed` for every transition and `conversation.assigned` on take over and release; `HandoffService` publishes `handoff.created`; `AiReplyJobHandler` publishes `ai.typing`. `conversation.read` and `staff.typing` are sent from T44.
+  - The payload also has `internal` (message events, so the widget stream can skip internal messages) and `state` (the new state, on `conversation.state_changed`). Neither is personal data.
+  - `NotificationListener`: one thread per instance with its own JDBC connection (outside the pool, `application_name` `tendwise-event-listener`). It reconnects after `tendwise.realtime.reconnect-delay` and then sends `resync` to every open stream, because events sent while it was disconnected are lost.
+  - `EventStreams` holds the open `SseEmitter`s by business. What the browser gets: `event: <type>`, `data: {"type","conversationId","id","state"}`, and `id: <message id>` on `message.created`. Heartbeat: a `: heartbeat` comment (`tendwise.realtime.heartbeat-interval`, 25 s). A stream ends after `tendwise.realtime.stream-timeout` (30 min) and the browser reconnects. On shutdown every stream is ended, so graceful shutdown does not wait for them.
+  - `resync` event: "you may have missed events, refetch". The panel stream sends it when it reconnects with `Last-Event-ID`; the widget stream instead replays up to 100 newer non-internal `message.created` events and the current state.
+  - The widget stream checks the token (404) and the origin (403) like the history call. No cap on streams per conversation or business yet.
+  - Spring Security lets the `ASYNC` dispatch that ends a stream through, and `PanelGuard` skips it: the request was checked when it came in.

@@ -55,7 +55,9 @@ class PanelTenantIsolationTest {
           // Test-only routes (TestPanelRoutes), until the first real panel route (T43).
           new PanelRoute(HttpMethod.GET, TestPanelRoutes.MEMBER_ROUTE),
           new PanelRoute(HttpMethod.POST, TestPanelRoutes.MEMBER_ROUTE),
-          new PanelRoute(HttpMethod.POST, TestPanelRoutes.OWNER_ROUTE));
+          new PanelRoute(HttpMethod.POST, TestPanelRoutes.OWNER_ROUTE),
+          // T40: the panel's live stream (SSE).
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/events"));
 
   @Autowired private MockMvc mockMvc;
   @Autowired private AccessTokens accessTokens;

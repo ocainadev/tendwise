@@ -3,6 +3,7 @@ package dev.ocaina.tendwise.auth;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.ocaina.tendwise.publicapi.PublicApiCors;
 import dev.ocaina.tendwise.shared.ApiKeyFilter;
+import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -48,6 +49,10 @@ public class SecurityConfig {
             new AccessTokenFilter(accessTokens), UsernamePasswordAuthenticationFilter.class)
         .authorizeHttpRequests(routes ->
             routes
+                // An SSE stream (T40) ends with an internal ASYNC dispatch of the same request. The
+                // request was already checked when it came in, so the dispatch is let through.
+                .dispatcherTypeMatchers(DispatcherType.ASYNC)
+                .permitAll()
                 .requestMatchers("/auth/me")
                 .authenticated()
                 // Login, refresh, logout and the JWKS check their own input.
