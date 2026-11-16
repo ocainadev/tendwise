@@ -6,7 +6,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# Stage 2: serve dist/ with nginx, which also proxies /api to agent-service.
+# Stage 2: serve dist/ with nginx, which also proxies the APIs (nginx.conf).
 FROM nginx:1.30-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
