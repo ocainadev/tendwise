@@ -72,7 +72,8 @@ def test_migrations_create_the_tables_once(database_url: str) -> None:
             "001_documents_chunks.sql",
             "002_conversations_turns.sql",
             "003_knowledge_base.sql",
-            "004_playground_channel.sql",
+            "004_knowledge_gaps.sql",
+            "005_playground_channel.sql",
         ]
 
 

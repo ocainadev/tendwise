@@ -20,6 +20,7 @@ from app.main import create_app
 from app.observability.turn_log import TurnRecord
 from tests.agent.agent_fakes import (
     CHUNK,
+    FakeGapRecorder,
     FakeGateway,
     FakeLLM,
     FakeRetriever,
@@ -89,6 +90,22 @@ def test_an_owner_gets_the_answer_and_its_sources() -> None:
     assert body["handoff"] is False
     # Stored with the playground channel, which the usage report leaves out.
     assert [record.channel for record in logger.records] == ["playground"]
+
+
+def test_an_unanswered_playground_question_is_not_a_knowledge_gap() -> None:
+    llm = FakeLLM([classification(intent="catalog_question"), "I don't know that."])
+    gateway = FakeGateway()
+    gaps = FakeGapRecorder()
+    deps = AgentDeps(
+        llm=llm, retriever=FakeRetriever([]), gateway=gateway, top_k=5, gap_recorder=gaps
+    )
+    client = make_client(AgentService(build_graph(deps, create_memory_checkpointer())), gateway)
+
+    response = client.post(URL, json={"message": "Do you sell wine?"}, headers=WRITE)
+
+    assert response.status_code == 200
+    assert response.json()["sources"] == []
+    assert gaps.recorded == []
 
 
 def test_a_playground_handoff_is_not_sent_to_business_service() -> None:

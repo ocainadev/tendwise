@@ -33,7 +33,7 @@ HandoffReason = Literal["COMPLAINT", "HUMAN_REQUEST", "NEGATIVE_SENTIMENT", "LOW
 NextStep = Literal["retrieve", "ask_or_call_tool", "create_handoff", "answer_generic"]
 # Where the conversation happens. "playground" is the knowledge page's test chat
 # (T51): it creates no handoff and is left out of the metrics.
-Channel = Literal["web", "playground"]
+Channel = Literal["web", "whatsapp", "playground"]
 
 
 class Source(BaseModel):
@@ -50,6 +50,8 @@ class AgentState(TypedDict):
     business_name: str
     default_language: Language
     conversation_id: str
+    # Where the conversation happens: "playground" is the knowledge page's test
+    # chat (T51), which records no knowledge gaps (T58) and is not counted.
     channel: Channel
 
     # --- persistent: survive across turns of the same conversation ---
