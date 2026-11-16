@@ -1,5 +1,7 @@
 """FastAPI entry point: `uvicorn app.main:app`."""
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -8,13 +10,16 @@ import psycopg
 from fastapi import FastAPI
 
 from app.agent.service import create_agent_service
-from app.api import admin, chat, health, internal
+from app.api import admin, chat, documents, health, internal
 from app.api.rate_limit import create_rate_limiter
 from app.auth.jwks import JwksCache
 from app.core.config import Settings, get_settings
-from app.core.db import CONNECT_TIMEOUT_SECONDS
+from app.core.db import CONNECT_TIMEOUT_SECONDS, ConnectionFactory, connection_factory
+from app.core.jobs import JobWorker
 from app.core.migrations import apply_migrations
 from app.gateways.business_gateway import HttpBusinessGateway
+from app.rag.embeddings import create_embedder
+from app.rag.indexing import INDEX_DOCUMENT, IndexDocumentHandler
 from app.rag.ingest import run_ingestion
 
 logger = logging.getLogger(__name__)
@@ -102,16 +107,40 @@ def build_chat_services(app: FastAPI, settings: Settings) -> None:
         logger.warning("Could not build the agent service: %s", type(error).__name__)
 
 
+async def run_job_worker(settings: Settings, connect: ConnectionFactory) -> None:
+    """Background task: run `agent.jobs` (INDEX_DOCUMENT, T50) until the server stops.
+
+    The embedding model is loaded here, in a thread, so it does not slow down
+    the startup. If it cannot be loaded, documents stay PENDING until a restart.
+    """
+    try:
+        embedder = await asyncio.to_thread(create_embedder, settings)
+    except Exception as error:  # broad on purpose: the app must keep running
+        logger.warning("Job worker not started: %s", type(error).__name__)
+        return
+    worker = JobWorker(connect, {INDEX_DOCUMENT: IndexDocumentHandler(connect, embedder)})
+    await worker.run_forever()
+
+
 @asynccontextmanager
 async def startup(app: FastAPI) -> AsyncIterator[None]:
-    """FastAPI "lifespan": code before `yield` runs once when the server starts."""
+    """FastAPI "lifespan": code before `yield` runs once when the server starts,
+    code after it once when the server stops."""
     migrate_database()
     settings = get_settings()
     ingest_documents(settings)
     build_chat_services(app, settings)
     # Fetches nothing yet: the keys are read on the first panel request.
     app.state.jwks_cache = JwksCache(settings.auth_jwks_url)
+    # Opens nothing yet: each knowledge base request opens its own connection.
+    app.state.connect_db = connection_factory(settings.database_url.get_secret_value())
+    worker_task = asyncio.create_task(run_job_worker(settings, app.state.connect_db))
     yield
+    # Stop polling. A job cut off mid-way stays RUNNING and is picked up again
+    # after 5 minutes (stale job), and running it twice is harmless.
+    worker_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await worker_task
 
 
 def create_app(run_startup: bool = False) -> FastAPI:
@@ -132,6 +161,7 @@ def create_app(run_startup: bool = False) -> FastAPI:
     app.include_router(admin.router)
     app.include_router(chat.router)
     app.include_router(internal.router)
+    app.include_router(documents.router)
     return app
 
 
