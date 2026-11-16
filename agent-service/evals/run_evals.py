@@ -125,7 +125,9 @@ def run_case(service: AgentService, business: BusinessInfo | None, case: EvalCas
         return CaseOutcome(error=f"unknown business {case.business!r}")
     started = time.monotonic()
     try:
-        result = service.handle_turn(uuid4(), business, case.input)
+        result = service.handle_turn(
+            uuid4(), with_case_settings(business, case), case.input, now=case.now
+        )
     except LLM_AUTH_ERRORS:
         # A rejected key is a broken setup, not a failed case: stop the whole run.
         raise
@@ -133,6 +135,13 @@ def run_case(service: AgentService, business: BusinessInfo | None, case: EvalCas
         message = f"{type(error).__name__}: {error}"[:MAX_ERROR_CHARS]
         return CaseOutcome(error=message, latency_seconds=time.monotonic() - started)
     return outcome_from_turn(result, latency_seconds=time.monotonic() - started)
+
+
+def with_case_settings(business: BusinessInfo, case: EvalCase) -> BusinessInfo:
+    """The business with the case's own assistant settings, if it has any (T54)."""
+    if case.assistant_settings is None:
+        return business
+    return business.model_copy(update={"assistant_settings": case.assistant_settings})
 
 
 def run_cases(

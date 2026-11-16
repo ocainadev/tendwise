@@ -5,13 +5,13 @@ get_order_status: that is how we check it is their order. Whatever is missing
 is asked for, and what was already given is remembered across turns.
 """
 
+from app.agent.business_instructions import answer_system_prompt
 from app.agent.deps import AgentDeps
 from app.agent.privacy import mask_phone_last4
 from app.agent.prompt_input import tagged
 from app.agent.replies import fixed_reply
 from app.agent.state import AgentState
 from app.llm.client import Message
-from app.prompts import load_prompt
 
 
 def run(state: AgentState, deps: AgentDeps) -> dict:
@@ -51,7 +51,8 @@ def run(state: AgentState, deps: AgentDeps) -> dict:
         ]
     )
     response = deps.llm.complete(
-        load_prompt("answer_order_status"), [Message(role="user", content=user_input)]
+        answer_system_prompt("answer_order_status", state["assistant"]),
+        [Message(role="user", content=user_input)],
     )
     update["reply"] = response.text.strip()
     update["llm_usage"] = state["llm_usage"] + [response]

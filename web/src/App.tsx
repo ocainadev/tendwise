@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from 'react-router'
 import { ADMIN_AREAS, AdminLayout } from './admin/AdminLayout'
 import { RequireAuth } from './auth/RequireAuth'
 import { Chat } from './components/Chat'
+import { InboxPage } from './inbox/InboxPage'
 import { KnowledgeArea } from './knowledge/KnowledgeArea'
 import { BusinessChooserPage } from './pages/BusinessChooserPage'
 import { ComingSoonPage } from './pages/ComingSoonPage'
@@ -19,6 +20,7 @@ import { TeamPage } from './settings/TeamPage'
 // The page of a panel area; areas whose task is not done yet are placeholders.
 // The knowledge area has pages of its own (list, editor), hence its "/*".
 const AREA_PAGES: Record<string, { path: string; element: ReactNode }> = {
+  inbox: { path: 'inbox', element: <InboxPage /> },
   knowledge: { path: 'knowledge/*', element: <KnowledgeArea /> },
   settings: { path: 'settings', element: <SettingsPage /> },
   team: { path: 'team', element: <TeamPage /> },

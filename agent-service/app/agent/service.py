@@ -8,6 +8,7 @@ Both `POST /api/v1/chat` and `POST /internal/v1/replies` (T37) call it; the
 internal route also passes the staff messages of a handoff.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from langgraph.graph.state import CompiledStateGraph
@@ -76,13 +77,15 @@ class AgentService:
         message: str,
         staff_messages: list[StaffMessage] | None = None,
         channel: Channel = "web",
+        now: datetime | None = None,
     ) -> TurnResult:
         """Answer one customer message of the conversation `conversation_id`.
 
         `staff_messages` are what staff told the customer since the last AI turn.
         They are added to the history before the graph runs, so every prompt of
         this turn (and of later turns) sees them. `channel` is "playground" for
-        the knowledge page's test chat (T51).
+        the knowledge page's test chat (T51). `now` is the time of the turn
+        (default: the current time); tests and evals set it to check opening hours.
         """
         # The thread id tells the checkpointer which conversation's state to load and save.
         config = {"configurable": {"thread_id": str(conversation_id)}}
@@ -93,6 +96,10 @@ class AgentService:
             conversation_id=str(conversation_id),
             message=message,
             channel=channel,
+            assistant=business.assistant_settings,
+            timezone=business.timezone,
+            opening_hours=business.opening_hours,
+            now=now,
         )
         saved = self._graph.get_state(config).values
         # First turn of this conversation: start with empty memory.
