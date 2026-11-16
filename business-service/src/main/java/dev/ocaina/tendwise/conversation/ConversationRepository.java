@@ -71,4 +71,13 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
       WHERE c.id = :id AND c.businessId = :businessId
       """)
   int recordMessage(UUID id, Long businessId, Instant at, int unread);
+
+  /** Staff opened the conversation (POST …/read, T44): no unread customer messages left. */
+  @Modifying(flushAutomatically = true, clearAutomatically = true)
+  @Query(
+      """
+      UPDATE Conversation c SET c.unreadByStaff = 0
+      WHERE c.id = :id AND c.businessId = :businessId
+      """)
+  int markRead(UUID id, Long businessId);
 }

@@ -5,11 +5,13 @@ package dev.ocaina.tendwise.conversation;
  * description; the panel and the widget can show their own translation based on the event.
  *
  * <p>internal = true means staff only. The customer sees only the events that tell them who is
- * answering (TAKEN_OVER, RELEASED, AI_FAILED) and the auto-ack. T44 adds ASSIGNED.
+ * answering (TAKEN_OVER, RELEASED, AI_FAILED) and the auto-ack.
  */
 public enum SystemEvent {
   HANDOFF_CREATED("Handed off to the team.", true),
   TAKEN_OVER("A team member joined the conversation.", false),
+  /** Staff gave the conversation to a colleague (T44): metadata userId (new) and byUserId. */
+  ASSIGNED("Assigned to a team member.", true),
   RELEASED("Back to the assistant.", false),
   RESOLVED("Conversation resolved.", true),
   REOPENED("The customer wrote again; conversation reopened.", true),

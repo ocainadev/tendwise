@@ -29,9 +29,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter.SseEvent
  * business's events never reach another business's stream.
  *
  * <p>What a client receives: {@code event: <type>} and {@code data: {"type", "conversationId",
- * "id", "state"}} (ids only). A message.created event also has {@code id: <message id>}, so after a
- * reconnect the browser sends the newest message id it has as {@code Last-Event-ID}. A {@code
- * resync} event means "events may have been missed: refetch".
+ * "id", "state"}} (ids only; staff.typing also has "name", the staff member's first name). A
+ * message.created event also has {@code id: <message id>}, so after a reconnect the browser sends
+ * the newest message id it has as {@code Last-Event-ID}. A {@code resync} event means "events may
+ * have been missed: refetch".
  */
 @Component
 public class EventStreams {
@@ -65,7 +66,7 @@ public class EventStreams {
 
   /** What the browser gets as the event's data: ids only. */
   @JsonInclude(JsonInclude.Include.NON_NULL)
-  record ClientEvent(String type, UUID conversationId, Long id, String state) {}
+  record ClientEvent(String type, UUID conversationId, Long id, String state, String name) {}
 
   /**
    * Opens the panel stream of a business. resuming: the browser reconnected (it sent
@@ -183,7 +184,11 @@ public class EventStreams {
             .name(event.type().wireName())
             .data(
                 new ClientEvent(
-                    event.type().wireName(), event.conversationId(), event.id(), event.state()),
+                    event.type().wireName(),
+                    event.conversationId(),
+                    event.id(),
+                    event.state(),
+                    event.name()),
                 MediaType.APPLICATION_JSON);
     if (event.type() == EventType.MESSAGE_CREATED) {
       sse.id(String.valueOf(event.id()));
@@ -194,6 +199,6 @@ public class EventStreams {
   private static SseEventBuilder resync() {
     return SseEmitter.event()
         .name(RESYNC)
-        .data(new ClientEvent(RESYNC, null, null, null), MediaType.APPLICATION_JSON);
+        .data(new ClientEvent(RESYNC, null, null, null, null), MediaType.APPLICATION_JSON);
   }
 }

@@ -11,10 +11,10 @@ public enum EventType {
   MESSAGE_CREATED("message.created", true),
   CONVERSATION_STATE_CHANGED("conversation.state_changed", true),
   CONVERSATION_ASSIGNED("conversation.assigned", false),
-  /** Sent from T44 (POST …/read). */
+  /** Staff marked the conversation read (POST …/read, T44). */
   CONVERSATION_READ("conversation.read", false),
   HANDOFF_CREATED("handoff.created", false),
-  /** Sent from T44 (POST …/typing). */
+  /** The assignee is typing (POST …/typing, T44). Never stored. */
   STAFF_TYPING("staff.typing", true),
   /** An AI_REPLY job started. Never stored. */
   AI_TYPING("ai.typing", true);

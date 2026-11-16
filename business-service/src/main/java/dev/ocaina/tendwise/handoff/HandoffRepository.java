@@ -1,7 +1,6 @@
 package dev.ocaina.tendwise.handoff;
 
 import java.time.Instant;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,21 +22,49 @@ public interface HandoffRepository extends JpaRepository<Handoff, Long> {
       Long businessId, UUID conversationId);
 
   /**
-   * Moves the conversation's handoffs that are in one of the from statuses (T41: the handoff
-   * follows its conversation). Returns the number of handoffs changed, 0 is fine (a conversation
-   * without a handoff, e.g. one the AI resolved).
+   * Staff took the conversation (take over or assign, T44): its handoffs that are still open move
+   * to IN_PROGRESS with the new assignee. A later assign moves the assignee and assigned_at again.
+   * Returns the number changed; 0 is fine (a conversation taken from the AI has no handoff).
    */
   @Modifying(flushAutomatically = true, clearAutomatically = true)
   @Query(
       """
-      UPDATE Handoff h SET h.status = :to, h.updatedAt = :now
+      UPDATE Handoff h
+      SET h.status = dev.ocaina.tendwise.handoff.HandoffStatus.IN_PROGRESS,
+          h.assigneeUserId = :assigneeUserId, h.assignedAt = :now, h.updatedAt = :now
       WHERE h.conversationId = :conversationId AND h.businessId = :businessId
-        AND h.status IN :from
+        AND h.status IN (dev.ocaina.tendwise.handoff.HandoffStatus.OPEN,
+                         dev.ocaina.tendwise.handoff.HandoffStatus.IN_PROGRESS)
       """)
-  int changeStatusOfConversation(
-      UUID conversationId,
-      Long businessId,
-      Collection<HandoffStatus> from,
-      HandoffStatus to,
-      Instant now);
+  int assignOfConversation(UUID conversationId, Long businessId, Long assigneeUserId, Instant now);
+
+  /**
+   * The conversation was resolved or handed back to the AI (T44): its open handoffs end. Returns
+   * the number changed; 0 is fine (a conversation the AI resolved has no handoff).
+   */
+  @Modifying(flushAutomatically = true, clearAutomatically = true)
+  @Query(
+      """
+      UPDATE Handoff h
+      SET h.status = dev.ocaina.tendwise.handoff.HandoffStatus.RESOLVED,
+          h.resolvedAt = :now, h.resolvedBy = :resolvedBy, h.updatedAt = :now
+      WHERE h.conversationId = :conversationId AND h.businessId = :businessId
+        AND h.status IN (dev.ocaina.tendwise.handoff.HandoffStatus.OPEN,
+                         dev.ocaina.tendwise.handoff.HandoffStatus.IN_PROGRESS)
+      """)
+  int resolveOfConversation(UUID conversationId, Long businessId, Long resolvedBy, Instant now);
+
+  /**
+   * Staff sent the customer a message: sets first_response_at of the handoff in progress, only the
+   * first time (the response-time metric).
+   */
+  @Modifying(flushAutomatically = true, clearAutomatically = true)
+  @Query(
+      """
+      UPDATE Handoff h SET h.firstResponseAt = :now
+      WHERE h.conversationId = :conversationId AND h.businessId = :businessId
+        AND h.status = dev.ocaina.tendwise.handoff.HandoffStatus.IN_PROGRESS
+        AND h.firstResponseAt IS NULL
+      """)
+  int recordFirstResponse(UUID conversationId, Long businessId, Instant now);
 }

@@ -11,7 +11,10 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
-/** A conversation the agent passed to a human. Created and updated through the API (T05). */
+/**
+ * A conversation the agent passed to a human. Created through the API (T05); from T44 its status
+ * and times change only with its conversation, through the updates in {@link HandoffRepository}.
+ */
 @Entity
 @Table(name = "handoffs")
 public class Handoff {
@@ -38,6 +41,19 @@ public class Handoff {
 
   private Instant updatedAt;
 
+  /** The staff member who took it last (T44); null until someone does. */
+  private Long assigneeUserId;
+
+  private Instant assignedAt;
+
+  /** First public HUMAN message after the handoff (T44). */
+  private Instant firstResponseAt;
+
+  private Instant resolvedAt;
+
+  /** Who resolved it or handed the conversation back to the AI (T44). */
+  private Long resolvedBy;
+
   /** Required by JPA. */
   protected Handoff() {}
 
@@ -50,12 +66,6 @@ public class Handoff {
     this.status = HandoffStatus.OPEN;
     this.createdAt = now();
     this.updatedAt = this.createdAt;
-  }
-
-  /** Any change is allowed (no state machine in the MVP). Also refreshes updatedAt. */
-  public void changeStatus(HandoffStatus newStatus) {
-    this.status = newStatus;
-    this.updatedAt = now();
   }
 
   /**
@@ -96,5 +106,25 @@ public class Handoff {
 
   public Instant getUpdatedAt() {
     return updatedAt;
+  }
+
+  public Long getAssigneeUserId() {
+    return assigneeUserId;
+  }
+
+  public Instant getAssignedAt() {
+    return assignedAt;
+  }
+
+  public Instant getFirstResponseAt() {
+    return firstResponseAt;
+  }
+
+  public Instant getResolvedAt() {
+    return resolvedAt;
+  }
+
+  public Long getResolvedBy() {
+    return resolvedBy;
   }
 }

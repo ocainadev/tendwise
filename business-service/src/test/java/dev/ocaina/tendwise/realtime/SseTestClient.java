@@ -17,10 +17,10 @@ import java.util.stream.Stream;
  * Reads one SSE stream over real HTTP, the way a browser does, and collects what arrives: events
  * (event, id, data lines) and comments (": heartbeat").
  */
-final class SseTestClient implements AutoCloseable {
+public final class SseTestClient implements AutoCloseable {
 
   /** One received event. Fields not sent are null. */
-  record Event(String name, String id, String data) {}
+  public record Event(String name, String id, String data) {}
 
   private final BlockingQueue<Event> events = new LinkedBlockingQueue<>();
   private final BlockingQueue<String> comments = new LinkedBlockingQueue<>();
@@ -39,7 +39,7 @@ final class SseTestClient implements AutoCloseable {
   }
 
   /** Opens the stream; returns once the response headers arrived. */
-  static SseTestClient open(String url, Map<String, String> headers) throws Exception {
+  public static SseTestClient open(String url, Map<String, String> headers) throws Exception {
     HttpRequest.Builder request =
         HttpRequest.newBuilder(URI.create(url)).header("Accept", "text/event-stream").GET();
     headers.forEach(request::header);
@@ -47,17 +47,17 @@ final class SseTestClient implements AutoCloseable {
     return new SseTestClient(http, http.send(request.build(), HttpResponse.BodyHandlers.ofLines()));
   }
 
-  int status() {
+  public int status() {
     return response.statusCode();
   }
 
   /** The first body lines of a response that is not a stream (an error problem). */
-  String errorBody() {
+  public String errorBody() {
     return String.join("\n", response.body().limit(20).toList());
   }
 
   /** The next event, or null when none arrives in time. */
-  Event next(Duration timeout) throws InterruptedException {
+  public Event next(Duration timeout) throws InterruptedException {
     return events.poll(timeout.toMillis(), TimeUnit.MILLISECONDS);
   }
 
@@ -67,7 +67,7 @@ final class SseTestClient implements AutoCloseable {
   }
 
   /** Every event that arrives within the given time. */
-  List<Event> collect(Duration during) throws InterruptedException {
+  public List<Event> collect(Duration during) throws InterruptedException {
     List<Event> received = new ArrayList<>();
     long end = System.nanoTime() + during.toNanos();
     while (System.nanoTime() < end) {
