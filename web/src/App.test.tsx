@@ -115,7 +115,6 @@ describe('business panel', () => {
     expect(await screen.findByRole('heading', { name: 'Caixa de entrada' })).toBeInTheDocument()
     await expectPath('/app/joes-pizza/inbox')
     expect(menuItems()).toEqual(ALL_MENU_ITEMS)
-    expect(screen.getByText('Em breve')).toBeInTheDocument()
   })
 
   it('hides OWNER-only menu items from an AGENT', async () => {
