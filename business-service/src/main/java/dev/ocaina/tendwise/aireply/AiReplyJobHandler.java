@@ -9,6 +9,7 @@ import dev.ocaina.tendwise.conversation.MessageSender;
 import dev.ocaina.tendwise.job.Job;
 import dev.ocaina.tendwise.job.JobHandler;
 import dev.ocaina.tendwise.job.JobType;
+import dev.ocaina.tendwise.realtime.EventPublisher;
 import dev.ocaina.tendwise.user.User;
 import dev.ocaina.tendwise.user.UserRepository;
 import java.util.HashMap;
@@ -34,6 +35,10 @@ import org.springframework.stereotype.Component;
  *       already WAITING: the reply is stored anyway and the state is not touched.
  * </ol>
  *
+ * <p>Live events (T40): ai.typing is sent right before the agent call. The stored AI message (or
+ * the AI_FAILED message and state change) sends its own events when its transaction commits, from
+ * {@link ConversationService}.
+ *
  * <p>This method runs outside any transaction: the agent call takes seconds and must not hold a
  * database connection. An exception is a failed attempt; after the last one {@link #onFinalFailure}
  * moves the conversation to WAITING with an AI_FAILED message.
@@ -53,18 +58,21 @@ public class AiReplyJobHandler implements JobHandler {
   private final BusinessRepository businesses;
   private final UserRepository users;
   private final AgentServiceClient agentService;
+  private final EventPublisher events;
 
   public AiReplyJobHandler(
       ConversationService conversations,
       MessageRepository messages,
       BusinessRepository businesses,
       UserRepository users,
-      AgentServiceClient agentService) {
+      AgentServiceClient agentService,
+      EventPublisher events) {
     this.conversations = conversations;
     this.messages = messages;
     this.businesses = businesses;
     this.users = users;
     this.agentService = agentService;
+    this.events = events;
   }
 
   @Override
@@ -90,7 +98,8 @@ public class AiReplyJobHandler implements JobHandler {
       return;
     }
 
-    // T40: publish ai.typing here (NOTIFY only, never stored).
+    // No transaction here, so the NOTIFY goes out at once (it is never stored).
+    events.aiTyping(payload.businessId(), payload.conversationId());
     ReplyResponse response =
         agentService.reply(
             new ReplyRequest(
@@ -109,15 +118,14 @@ public class AiReplyJobHandler implements JobHandler {
     if (stored.isEmpty()) {
       log.info("AI_REPLY job {}: reply dropped, staff took the conversation", job.getId());
     }
-    // T40: after this commit, publish the stored message (NOTIFY events) when present.
   }
 
   /** Last attempt failed: a person picks the conversation up instead of the customer waiting. */
   @Override
   public void onFinalFailure(Job job) {
     Payload payload = Payload.of(job);
+    // Sends message.created (AI_FAILED) and conversation.state_changed after its commit.
     conversations.failAiReply(payload.conversationId(), payload.businessId());
-    // T40: after this commit, publish the AI_FAILED message and the state change.
   }
 
   /**

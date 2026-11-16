@@ -6,6 +6,7 @@ import dev.ocaina.tendwise.business.OpeningHours;
 import dev.ocaina.tendwise.conversation.ConversationService;
 import dev.ocaina.tendwise.job.Job;
 import dev.ocaina.tendwise.job.JobRepository;
+import dev.ocaina.tendwise.realtime.EventPublisher;
 import dev.ocaina.tendwise.shared.NotFoundException;
 import java.time.Duration;
 import java.time.Instant;
@@ -20,22 +21,26 @@ public class HandoffService {
   private final HandoffRepository handoffs;
   private final ConversationService conversations;
   private final JobRepository jobs;
+  private final EventPublisher events;
 
   public HandoffService(
       BusinessRepository businesses,
       HandoffRepository handoffs,
       ConversationService conversations,
-      JobRepository jobs) {
+      JobRepository jobs,
+      EventPublisher events) {
     this.businesses = businesses;
     this.handoffs = handoffs;
     this.conversations = conversations;
     this.jobs = jobs;
+    this.events = events;
   }
 
   /**
    * Creates an OPEN handoff and, in the same transaction (T41), moves its conversation from AI to
    * WAITING with a SYSTEM message and queues the AUTO_ACK job. The job runs right away when the
-   * business is closed, otherwise after the business's autoAckMinutes.
+   * business is closed, otherwise after the business's autoAckMinutes. The panel gets
+   * handoff.created (T40) after the commit.
    *
    * <p>404 if the business does not exist. 409 (ConversationConflictException) if the conversation
    * is not in AI.
@@ -53,6 +58,7 @@ public class HandoffService {
         handoffs.save(
             new Handoff(
                 business.getId(), request.conversationId(), request.reason(), request.summary()));
+    events.handoffCreated(business.getId(), request.conversationId(), handoff.getId());
     if (!knownConversation) {
       // Temporary until T42 (see above): a conversation that lives only in agent-service.
       return HandoffResponse.from(handoff);

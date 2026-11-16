@@ -6,6 +6,7 @@ import dev.ocaina.tendwise.business.Business;
 import dev.ocaina.tendwise.business.BusinessRepository;
 import dev.ocaina.tendwise.shared.NotFoundException;
 import dev.ocaina.tendwise.user.MembershipRole;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.access.AccessDeniedException;
@@ -45,6 +46,11 @@ class PanelGuard implements HandlerInterceptor {
       HttpServletRequest request, HttpServletResponse response, Object handler) {
     // No controller matched this path: let Spring answer its usual 404.
     if (!(handler instanceof HandlerMethod method)) {
+      return true;
+    }
+    // The internal dispatch that ends an SSE stream (T40): this request was checked when it came
+    // in, and its CurrentMembership is still on it.
+    if (request.getDispatcherType() == DispatcherType.ASYNC) {
       return true;
     }
 

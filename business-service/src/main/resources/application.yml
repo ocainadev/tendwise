@@ -28,6 +28,11 @@ spring:
     properties:
       hibernate:
         default_schema: core
+  threads:
+    virtual:
+      # Java 21 virtual threads for requests and @Scheduled tasks: each open SSE stream (T40) waits
+      # cheaply instead of holding a platform thread.
+      enabled: true
   mvc:
     # Framework errors (400 on a bad parameter, 405...) are returned as RFC 7807 Problem Details.
     problemdetails:
@@ -87,6 +92,14 @@ tendwise:
     stale-after: 5m
     # Jobs running at the same time on one instance.
     max-concurrent: 4
+  # Live events: LISTEN/NOTIFY and the SSE streams (T40, docs/architecture.md "Real-time").
+  realtime:
+    # A ": heartbeat" comment on every open stream, so proxies keep idle streams open.
+    heartbeat-interval: 25s
+    # A stream ends after this; the browser reconnects with Last-Event-ID.
+    stream-timeout: 30m
+    # Wait before the LISTEN connection tries again after it broke.
+    reconnect-delay: 2s
   # Transactional email (T34). Until T69 the emails are only logged (LogEmailSender).
   email:
     # The web app; links in emails point there (an invitation: <web-url>/invitations/accept#token=...).
