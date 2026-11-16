@@ -64,7 +64,10 @@ class PanelTenantIsolationTest {
           new PanelRoute(HttpMethod.POST, "/api/v1/panel/{slug}/invitations"),
           new PanelRoute(HttpMethod.DELETE, "/api/v1/panel/{slug}/invitations/{id}"),
           // T40: the panel's live stream (SSE).
-          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/events"));
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/events"),
+          // T53: settings.
+          new PanelRoute(HttpMethod.GET, "/api/v1/panel/{slug}/settings"),
+          new PanelRoute(HttpMethod.PUT, "/api/v1/panel/{slug}/settings"));
 
   @Autowired private MockMvc mockMvc;
   @Autowired private AccessTokens accessTokens;

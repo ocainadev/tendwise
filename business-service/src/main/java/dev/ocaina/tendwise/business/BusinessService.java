@@ -34,7 +34,8 @@ public class BusinessService {
         business.getCategory(),
         business.getDefaultLanguage(),
         business.getTimezone(),
-        parseOpeningHours(business.getOpeningHours()));
+        parseOpeningHours(business.getOpeningHours()),
+        business.getAssistantSettings());
   }
 
   /** All items of the business ordered by name, including unavailable ones. */
