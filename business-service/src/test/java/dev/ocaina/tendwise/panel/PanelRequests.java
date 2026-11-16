@@ -25,7 +25,7 @@ public final class PanelRequests {
     return tokenFor(accessTokens, 1_000_001L, slug, role);
   }
 
-  /** The same, for a given user id (e.g. a user the test saved, to filter by "me"). */
+  /** The same, for a user that exists in the database (needed when the route stores the id). */
   public static String tokenFor(
       AccessTokens accessTokens, long userId, String slug, MembershipRole role) {
     AuthenticatedUser user =

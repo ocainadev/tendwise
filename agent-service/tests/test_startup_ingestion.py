@@ -3,6 +3,7 @@
 `run_ingestion` is replaced by a fake, so no database or model is needed.
 """
 
+import asyncio
 import logging
 
 import pytest
@@ -48,6 +49,20 @@ def test_ingest_documents_only_logs_the_error_type_when_it_fails(
     assert "secret-db-host" not in caplog.text
 
 
+def fake_job_worker(order: list[str]):
+    """A job worker that records when it starts and when it is stopped."""
+
+    async def run(settings: Settings, connect: object) -> None:
+        order.append("worker")
+        try:
+            await asyncio.Event().wait()  # runs until cancelled, like the real one
+        except asyncio.CancelledError:
+            order.append("worker stopped")
+            raise
+
+    return run
+
+
 def test_startup_runs_ingestion_and_still_starts_when_it_fails(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -60,6 +75,7 @@ def test_startup_runs_ingestion_and_still_starts_when_it_fails(
     monkeypatch.setattr(main, "migrate_database", lambda: order.append("migrate"))
     monkeypatch.setattr(main, "run_ingestion", failing_ingestion)
     monkeypatch.setattr(main, "build_chat_services", lambda app, s: order.append("build"))
+    monkeypatch.setattr(main, "run_job_worker", fake_job_worker(order))
     monkeypatch.setattr(main, "get_settings", lambda: settings)
     monkeypatch.setattr(health, "check_database", lambda url: None)
 
@@ -68,4 +84,5 @@ def test_startup_runs_ingestion_and_still_starts_when_it_fails(
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
 
-    assert order == ["migrate", "ingest", "build"]
+    # The job worker starts after the rest and is stopped on shutdown.
+    assert order == ["migrate", "ingest", "build", "worker", "worker stopped"]

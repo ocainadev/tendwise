@@ -1,8 +1,13 @@
-"""Ingestion: read `data/businesses/<slug>/*.md`, chunk, embed, store in pgvector.
+"""Seed ingestion: read `data/businesses/<slug>/*.md`, chunk, embed, store in pgvector.
+
+Since T50 the knowledge base lives in the database and owners edit it in the
+panel; these files are the seed of the demo businesses (`source = 'FILE'`).
 
 Idempotent: each document keeps the sha256 of its file. An unchanged file is
-skipped, a changed file gets its chunks replaced, and a removed file loses its
-document and chunks. So running ingestion twice creates no duplicate chunks.
+skipped, a changed file gets its content and chunks replaced, and a removed
+file loses its document and chunks. So running ingestion twice creates no
+duplicate chunks. A document edited in the panel (`source = 'EDITOR'`) is never
+touched: the owner's text wins over the file.
 """
 
 import hashlib
@@ -18,7 +23,7 @@ from psycopg.types.json import Jsonb
 
 from app.core.config import Settings
 from app.core.migrations import apply_migrations
-from app.rag.chunking import chunk_markdown
+from app.rag.chunking import Chunk, chunk_markdown
 from app.rag.embeddings import Embedder, create_embedder
 
 logger = logging.getLogger(__name__)
@@ -51,8 +56,10 @@ def ingest_all(conn: psycopg.Connection, businesses_dir: Path, embedder: Embedde
         conn.execute("SELECT pg_advisory_xact_lock(%s)", (INGEST_LOCK_ID,))
 
         folders = {path.name: path for path in businesses_dir.iterdir() if path.is_dir()}
-        # Businesses already in the index whose folder is gone must be cleaned up too.
-        rows = conn.execute("SELECT DISTINCT business_id FROM agent.documents").fetchall()
+        # Businesses with seed documents whose folder is gone must be cleaned up too.
+        rows = conn.execute(
+            "SELECT DISTINCT business_id FROM agent.documents WHERE source = 'FILE'"
+        ).fetchall()
         business_ids = sorted(set(folders) | {row[0] for row in rows})
 
         for business_id in business_ids:
@@ -110,10 +117,19 @@ def _ingest_file(
     source_path = _source_path(business_id, file)
     new_hash = content_hash(text)
 
+    # FOR UPDATE: a panel save of this document waits until we commit, and if
+    # the panel saved first we see its `source = 'EDITOR'` here.
     row = conn.execute(
-        "SELECT id, content_hash FROM agent.documents WHERE business_id = %s AND source_path = %s",
+        """
+        SELECT id, content_hash, source FROM agent.documents
+        WHERE business_id = %s AND source_path = %s
+        FOR UPDATE
+        """,
         (business_id, source_path),
     ).fetchone()
+    if row is not None and row[2] != "FILE":
+        logger.info("Kept %s: it was edited in the panel", source_path)
+        return "skipped"
     if row is not None and row[1] == new_hash:
         return "skipped"
 
@@ -125,11 +141,12 @@ def _ingest_file(
         result = "added"
         inserted = conn.execute(
             """
-            INSERT INTO agent.documents (business_id, source_path, title, content_hash)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO agent.documents
+                (business_id, source_path, title, content_hash, content, source, status)
+            VALUES (%s, %s, %s, %s, %s, 'FILE', 'INDEXED')
             RETURNING id
             """,
-            (business_id, source_path, _title(text, file), new_hash),
+            (business_id, source_path, _title(text, file), new_hash, text),
         ).fetchone()
         assert inserted is not None  # RETURNING always gives a row
         document_id = inserted[0]
@@ -138,16 +155,33 @@ def _ingest_file(
         document_id = row[0]
         conn.execute(
             """
-            UPDATE agent.documents SET title = %s, content_hash = %s, updated_at = now()
+            UPDATE agent.documents
+            SET title = %s, content_hash = %s, content = %s, status = 'INDEXED', updated_at = now()
             WHERE id = %s AND business_id = %s
             """,
-            (_title(text, file), new_hash, document_id, business_id),
-        )
-        conn.execute(
-            "DELETE FROM agent.chunks WHERE document_id = %s AND business_id = %s",
-            (document_id, business_id),
+            (_title(text, file), new_hash, text, document_id, business_id),
         )
 
+    replace_chunks(conn, business_id, document_id, chunks, vectors)
+    logger.info("Ingested %s: %s, %d chunks", source_path, result, len(chunks))
+    return result
+
+
+def replace_chunks(
+    conn: psycopg.Connection,
+    business_id: str,
+    document_id: int,
+    chunks: list[Chunk],
+    vectors: list[list[float]],
+) -> None:
+    """Delete a document's chunks and insert the new ones (inside the caller's transaction).
+
+    Shared by the seed ingestion and the INDEX_DOCUMENT job (app/rag/indexing.py).
+    """
+    conn.execute(
+        "DELETE FROM agent.chunks WHERE document_id = %s AND business_id = %s",
+        (document_id, business_id),
+    )
     with conn.cursor() as cursor:
         cursor.executemany(
             """
@@ -159,16 +193,18 @@ def _ingest_file(
                 for chunk, vector in zip(chunks, vectors, strict=True)
             ],
         )
-    logger.info("Ingested %s: %s, %d chunks", source_path, result, len(chunks))
-    return result
 
 
 def _delete_missing(conn: psycopg.Connection, business_id: str, source_paths: list[str]) -> int:
-    """Delete this business's documents whose file is gone; chunks go by ON DELETE CASCADE."""
+    """Delete this business's seed documents whose file is gone; chunks go by ON DELETE CASCADE.
+
+    Only `source = 'FILE'` documents: the ones written or edited in the panel
+    have no file and must stay.
+    """
     deleted = conn.execute(
         """
         DELETE FROM agent.documents
-        WHERE business_id = %s AND NOT (source_path = ANY(%s))
+        WHERE business_id = %s AND source = 'FILE' AND NOT (source_path = ANY(%s))
         RETURNING source_path
         """,
         (business_id, source_paths),

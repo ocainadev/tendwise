@@ -131,14 +131,16 @@ Parallel Java PRs must not pick the same Flyway version:
 - **T36** adds `V4__conversations.sql` (`conversations`, `messages`, `jobs`).
 - **T38** adds `V5__widget.sql` (`businesses.publishable_key`, `businesses.widget_settings`). The demo businesses get `pk_demo_joes_pizza` and `pk_demo_denim_corner` and allow `http://localhost:5173` and `http://127.0.0.1:5173`.
 - **T41** adds `V6__handoff_settings.sql` (`businesses.handoff_settings`, job type `AUTO_ACK`).
+- **T34** adds `V7__invitations.sql` (`invitations`).
 - Every later Java task takes **the next free number at the time it starts** (`V5__…`, `V6__…`, …). If another PR with the same number lands first, rebase and renumber before merging. Never edit a migration that is already on main.
 
 ### Schema `agent` (owned by agent-service)
 
 | Table | Main columns |
 |---|---|
-| `documents` | id, business_id, source_path, title, content_hash, updated_at |
+| `documents` | id, business_id, source_path, title, content_hash, updated_at, content, source, status, updated_by (T50) |
 | `chunks` | id, document_id, business_id, content, embedding vector(N), metadata (jsonb) |
+| `jobs` | id, type, payload (jsonb), status, attempts, run_at, locked_at, last_error, created_at (T50; see [Knowledge base](#knowledge-base-t50)) |
 | `conversations` | id, business_id, channel (web/whatsapp), language, status, created_at |
 | `turns` | id, conversation_id, role, content, intent, tool_calls (jsonb), prompt_tokens, completion_tokens, latency_ms, cost_usd, model, created_at |
 
@@ -148,11 +150,11 @@ Parallel Java PRs must not pick the same Flyway version:
 #### RAG tables (`documents`, `chunks`)
 
 - `business_id` is the business **slug** (`TEXT`, e.g. `joes-pizza`), not `core.businesses.id`. agent-service never reads the `core` schema (it only calls the business-service API), and every chat request carries the slug. The slug is the folder name in `data/businesses/<slug>/`.
-- `documents`: one row per `.md` file. `source_path` is `<slug>/<file>.md`, unique per `(business_id, source_path)`; `title` is the file's first `# ` heading; `content_hash` is the sha256 of the file.
+- `documents`: one row per document. `source_path` is its unique name within the business, `<slug>/<name>.md` (for a seed file, the file name); `title` is the file's first `# ` heading for a seed file, or the title typed in the panel; `content` is the markdown and `content_hash` its sha256. Since T50 the database is the source of truth; see [Knowledge base](#knowledge-base-t50).
 - `chunks`: `document_id` references `documents(id)` `ON DELETE CASCADE`; `business_id` is repeated so searches filter by it without a join; `metadata` holds the heading path, e.g. `{"section": "Joe's Pizza – Frequently asked questions > Delivery > Fees"}`.
 - `embedding` is `vector(384)`: the multilingual model `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, run locally with fastembed (ONNX, no API key). Changing the model means changing `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` and the column (new migration), then re-ingesting.
 - Indexes: HNSW on `embedding vector_cosine_ops` (approximate nearest neighbours by cosine distance, `<=>`), and a B-tree on `chunks.business_id`.
-- Ingestion (`app/rag/ingest.py`) runs in one transaction behind an advisory lock: unchanged hash → skipped; changed hash → the document's chunks are deleted and re-inserted; file removed → document deleted (chunks cascade).
+- Ingestion (`app/rag/ingest.py`) seeds the demo businesses from `data/businesses` (`source = FILE`). It runs in one transaction behind an advisory lock: unchanged hash → skipped; changed hash → the document's content and chunks are replaced; file removed → document deleted (chunks cascade). A document edited or written in the panel (`source = EDITOR`) is never touched (not updated, not deleted).
 - Ingestion runs on every agent-service startup (after migrations, before the agent is built), so a fresh `docker compose up` has an index. A failure is only logged (error type only) and the service still starts; `scripts/ingest.py` and `POST /api/v1/admin/ingest` re-index by hand.
 
 #### Retrieval
@@ -168,19 +170,31 @@ Parallel Java PRs must not pick the same Flyway version:
 
 Plain SQL files in `agent-service/migrations/` (`001_documents_chunks.sql`, ...), applied in file-name order by `app/core/migrations.py` on app startup and at the start of every ingestion. Applied files are recorded in `agent.schema_migrations`.
 
+#### Knowledge base (T50)
+
+Owners edit the documents in the panel ([routes](#panel-api-planned)); the `data/businesses` files are only the seed of the demo businesses.
+
+- **Migration** `003_knowledge_base.sql`: `documents.content` (text), `source` (`FILE`, `EDITOR`; `UPLOAD` and `CATALOG` reserved for T19 and T52), `status` (`PENDING`, `INDEXED`, `FAILED`), `updated_by` (panel user id, null for files), and `agent.jobs`. It resets the hash of the rows ingested before it, so the next startup ingestion re-reads every file and fills `content`.
+- **Saving is instant:** create and update store the text with status `PENDING` and enqueue an `INDEX_DOCUMENT` job (payload `business_id`, `document_id`, `content_hash`) in the same transaction. A title-only change keeps the chunks and needs no job. Until the job finishes, the retriever keeps the document's previous chunks; a new document has none yet.
+- **The job** (`app/rag/indexing.py`) reads the document only if it still has the job's `content_hash`, chunks and embeds it outside any transaction, then, holding the row lock and checking the hash again, replaces its chunks and sets `INDEXED`. A job for an older version or a deleted document does nothing, so a slow old job never overwrites newer chunks. After the last failed attempt the document is `FAILED` (the job's `last_error` keeps the error type only); a new save or a reindex tries again.
+- **Worker** (`app/core/jobs.py`): the same rules as [Jobs](#jobs) (`FOR UPDATE SKIP LOCKED`, 3 attempts, 5 s backoff doubling, stale `RUNNING` after 5 minutes back to `PENDING`), run by one asyncio task started at startup that takes one job at a time in a thread (`asyncio.to_thread`): indexing is CPU work, so running more at once would not make it faster. It loads its own embedding model in the background, so startup does not wait for it.
+- **Seed vs. panel:** editing a `FILE` document turns it into `EDITOR`, so a restart never overwrites the owner's text, even if the file changed. The seed locks the row (`FOR UPDATE`) before deciding, so a panel save during startup ingestion is never lost. Deleting a `FILE` document in the panel removes it until the next restart, which seeds it again from its file (the demo businesses reset to their files); to change a seed document for good, edit it.
+- **Names:** a new document's `source_path` comes from its title (`Horário & Entrega` → `<slug>/horario-entrega.md`, then `-2`, `-3` if taken) and never changes afterwards.
+- **Limits** (`app/rag/documents.py`): title 1–200 characters, text 1–50,000 characters per document (both `422` from validation), at most 50 documents and 500,000 characters in all per business (`422` with a readable detail). At ~800 characters per chunk that is at most ~600 chunks per business, a few seconds to re-embed on a laptop. Saves of one business take an advisory lock, so two parallel saves cannot both pass the limits. Seed files do not check the limits.
+
 #### Planned `agent` changes (control panels)
 
 | Table | Change | Planned |
 |---|---|---|
-| `documents` | New columns `content` (text), `source` (`FILE`, `EDITOR`, `UPLOAD`, `CATALOG`), `status` (`PENDING`, `INDEXED`, `FAILED`), `updated_by` (user id from the panel JWT, null for files). Knowledge moves from files to the database; the `data/businesses` files stay as the seed of the demo businesses (`source = FILE`). `source_path` stays the document's unique name within the business | T50 (`UPLOAD`: T19, `CATALOG`: T52) |
-| `jobs` | New, same columns, statuses and `SKIP LOCKED` worker as `core.jobs` (agent-service never touches the `core` schema, so it needs its own queue). Types: `INDEX_DOCUMENT` (T50), `REGENERATE_CATALOG` (T52) | T50 |
+| `documents` | New columns `content` (text), `source` (`FILE`, `EDITOR`, `UPLOAD`, `CATALOG`), `status` (`PENDING`, `INDEXED`, `FAILED`), `updated_by` (user id from the panel JWT, null for files). Knowledge moves from files to the database; the `data/businesses` files stay as the seed of the demo businesses (`source = FILE`). `source_path` stays the document's unique name within the business | Done in T50 (`UPLOAD`: T19, `CATALOG`: T52) |
+| `jobs` | New, same columns, statuses and `SKIP LOCKED` worker as `core.jobs` (agent-service never touches the `core` schema, so it needs its own queue). Types: `INDEX_DOCUMENT` (T50), `REGENERATE_CATALOG` (T52, which extends `jobs_type_check`) | Done in T50 |
 | `knowledge_gaps` | New: id, business_id, question (phones and emails masked), best_similarity, created_at. One row per catalog question whose best chunk is below `RAG_MIN_SIMILARITY`. Blocked messages are not recorded. Similar questions are grouped when the panel reads them; a grouping column, if needed, is proposed in T58 | T58 |
 | `conversations` | `id` is the same UUID as `core.conversations.id` (sent by business-service from T37). `channel` also takes `playground` for knowledge-page test chats, which the usage numbers leave out | T37, T51 |
 | `turns` | Unchanged: AI telemetry | – |
 
 #### Planned agent migrations
 
-The first agent-service task that needs a migration (expected: **T50**) adds `003_knowledge_base.sql` (`documents` columns and `agent.jobs`). Every later one takes the next free number when it starts (`004_…`, `005_…`), and renumbers after a rebase if another PR took it first.
+T50 added `003_knowledge_base.sql` (`documents` columns and `agent.jobs`). Every later agent-service task that needs a migration takes the next free number when it starts (`004_…`, `005_…`), and renumbers after a rebase if another PR took it first.
 
 ## Conversations and message routing
 
@@ -242,7 +256,7 @@ In states `WAITING` and `HUMAN` step 1 stores the message and notifies staff, wi
 
 ### Jobs
 
-- `core.jobs` is the queue of business-service (T36, worker T39); `agent.jobs` is agent-service's own (T50). Both work the same way.
+- `core.jobs` is the queue of business-service (T36, worker T39); `agent.jobs` is agent-service's own (T50). Both work the same way, except that agent-service runs one job at a time (see [Knowledge base](#knowledge-base-t50)).
 - A worker (`JobWorker`, T39) polls every second for `status = 'PENDING' AND run_at <= now()` with `FOR UPDATE SKIP LOCKED`, sets `RUNNING`, `locked_at` and `attempts + 1` and commits, runs the job outside any transaction (the agent call never holds a connection or a lock), and then sets `DONE`, or `PENDING` with a later `run_at` (backoff: 5 s, then doubling) and `last_error` (error type only, e.g. `ServiceUnavailable 503`, never message text or a response body), or `FAILED` after the last attempt (3 in total). Each instance runs up to 4 jobs at a time, each on a virtual thread.
 - A job left `RUNNING` with a `locked_at` older than 5 minutes (the instance died) goes back to `PENDING`; its attempt still counts.
 - `AI_REPLY` jobs of one conversation run one at a time, in order: the worker skips a job whose conversation already has a `RUNNING` `AI_REPLY` or an older `PENDING` one (for example waiting for its retry).
@@ -250,7 +264,7 @@ In states `WAITING` and `HUMAN` step 1 stores the message and notifies staff, wi
 - **Staff messages:** an `AI_REPLY` sends the `HUMAN` messages the customer saw (not internal notes) since the conversation's last `AI` message, oldest first, with the author's name (at most the last 50, bodies cut at 4,000 characters).
 - **Configuration** (`tendwise.jobs.*` in `application.yml`): `worker-enabled` (`JOB_WORKER_ENABLED`, default `true`; tests turn it off and call the worker directly), `poll-interval`, `max-attempts`, `retry-delay`, `stale-after`, `max-concurrent`. agent-service is reached at `AGENT_SERVICE_URL` (compose: `http://agent-service:8000`) with a 60-second read timeout.
 - **Events (T40):** `AiReplyJobHandler` marks where `ai.typing` is sent and where the stored `AI` or `AI_FAILED` message is published after its commit.
-- Types: `AI_REPLY` (T39), `AUTO_ACK` (T41), `SEND_EMAIL` (T48, real provider T69), `USAGE_ROLLUP` (T59). A new type is added by the task that needs it and listed here.
+- Types: `AI_REPLY` (T39), `AUTO_ACK` (T41), `SEND_EMAIL` (T48, real provider T69), `USAGE_ROLLUP` (T59). `agent.jobs`: `INDEX_DOCUMENT` (T50), `REGENERATE_CATALOG` (T52). A new type is added by the task that needs it and listed here.
 
 ## Agent graph
 
@@ -471,6 +485,8 @@ agent-service (verifies the same JWT with the JWKS, and the CSRF header):
 - **As built (T32):** package `dev.ocaina.tendwise.panel`. Spring Security requires a valid access token on `/api/v1/panel/**` (401 otherwise). Then `PanelGuard`, a Spring MVC interceptor, runs before the controller: it takes the slug from the path, looks for it in the token's `memberships`, and loads the business by slug; a missing membership or business gives the same `404` problem (`Business not found`). A route or controller marked `@OwnerOnly` answers `403` to an `AGENT`; unmarked routes are open to every member. The controller declares a `CurrentMembership` parameter (`businessId`, `slug`, `role`) and uses its `businessId` in every query. Roles come from the token, so a role change or removal takes effect within the token's 15 minutes. `PanelTenantIsolationTest.ROUTES` lists every panel route; each panel task appends its routes there, and the test fails if a mapped panel route is missing.
 - **As built (T43):** package `dev.ocaina.tendwise.inbox`, open to every member. `GET …/conversations` takes `state` (`AI`, `WAITING`, `HUMAN`, `RESOLVED`; absent = all), `assignee` (`me` or a user id), `q` (case-insensitive text in the non-`SYSTEM` messages, internal notes included; at most 200 characters; `%` and `_` are plain text), `cursor` and `limit` (1–100, default 30). The tabs are `state=WAITING`, `state=HUMAN&assignee=me`, `state=AI` and `state=RESOLVED`. Order: `last_message_at` desc, then `id` desc; `cursor` is the opaque `nextCursor` of the previous page (`last_message_at` + `id` of its last row; `null` on the last page). Response: `items`, `nextCursor`, `counts`. Each item: `id`, `state`, `channel`, `language`, `assignee` (`id`, `name`) or null, `lastMessage` (`sender`, `preview` = first 120 characters, `internal`) of the newest non-`SYSTEM` message or null, `lastMessageAt`, `unreadCount` (`unread_by_staff`), `handoffReason` of the handoff that is `OPEN` or `IN_PROGRESS`, `waitingSince` (time of the `HANDOFF_CREATED` or `AI_FAILED` message, only in `WAITING`). `counts` holds the badges `waiting`, `mine` (`HUMAN` assigned to the caller) and `ai`, each `conversations` and `unread` (how many have unread messages); they ignore the filters. One SQL query per page (LATERAL joins, no query per row) and one for the counts. `GET …/conversations/{id}`: the conversation fields plus `createdAt`, `resolvedAt`, `messages` (all, oldest first, internal included: `id`, `sender`, `authorUserId`, `authorName`, `body`, `internal`, `metadata`, `createdAt`) and `handoffs` (`id`, `reason`, `summary`, `status`, `createdAt`, `updatedAt`); `satisfaction` is added with its table (T61). Another business's conversation gives `404` (`Conversation not found`). A bad `cursor`, `assignee`, `limit` or `q` gives `400`. Reading does not mark the conversation read (`POST …/read`, T44).
 - **As built (T35):** package `app/auth` in agent-service. A route takes `Depends(require_panel_role("AGENT" | "OWNER"))` and gets the user and the business slug. Checks, in business-service's order: `X-CSRF-Token` equal to the `tendwise_csrf` cookie on `POST`/`PUT`/`PATCH`/`DELETE` (403), a valid `tendwise_access` token (401), the slug among the token's memberships (404), the role (403; `OWNER` includes `AGENT`). The token must be `EdDSA`, signed by a key from `AUTH_JWKS_URL` (default `http://business-service:8080/auth/jwks.json`), with `iss` = `tendwise-business-service` and an unexpired `exp`; it has no `aud` (business-service sets none, and a token that has one is refused). The keys are cached for 5 minutes and fetched again early for an unknown `kid`, at most once every 30 seconds. If no keys can be fetched the route answers 503. A platform admin gets no business through this guard (support mode is T64).
+- **As built (T34):** package `dev.ocaina.tendwise.team`, all `@OwnerOnly`. `GET …/team` lists members (`userId`, `name`, `email`, `role`, `joinedAt`) by name; `PATCH …/team/{userId}` (body `role`) and `DELETE …/team/{userId}` (`204`) answer `404` for a user who is not a member of this business and `409` (problem `Last owner`) when the business would have no `OWNER` left; the business's owner memberships are locked (`SELECT … FOR UPDATE`) first, so two owners demoting each other at once leave one. Removal deletes only the membership, never the user. Refresh tokens are **not** revoked: they have no `business_id`, and revoking them would log the user out of their other businesses; every refresh reads the memberships again, so a removed or demoted member loses the access within the access token's 15 minutes. `GET …/invitations` lists the pending ones (`id`, `email`, `role`, `expiresAt`; never the token); `POST …/invitations` (body `email`, `role`) answers `201`, `409` (`Already a member`) for an email that is already in the team, and replaces a pending invitation for the same email (the old link stops working); `DELETE …/invitations/{id}` revokes a pending one by deleting its row (`404` for another business's id). The token is 32 random bytes; only its SHA-256 is stored.
+- **As built (T50):** `app/api/documents.py`, JSON in camelCase like business-service. A document is `id`, `sourcePath`, `title`, `source` (`FILE`/`EDITOR`), `status` (`PENDING`/`INDEXED`/`FAILED`), `characters`, `updatedAt`, `updatedBy`; `GET …/documents/{id}`, `POST` and `PUT` add `content`, the list leaves it out. `POST` and `PUT` take `{"title", "content"}`; `POST` answers `201`, `PUT` `200`, `DELETE` `204`, `POST …/reindex` `202` with `{"queued": n}` (every document of the business set `PENDING` and queued). A document id of another business answers `404` `Document not found`, like an unknown id. An unreachable database answers `503`. Limits and indexing: [Knowledge base](#knowledge-base-t50). nginx and the Vite dev proxy send `/api/v1/panel/{slug}/documents…` to agent-service ahead of the business-service `/api/v1/panel/` prefix.
 - **Deferred:** the orders integration API that a client's own system calls with a business API key (`api_keys`, scope per key) is proposed in T57; only the panel routes above are fixed.
 - Support mode (T64) can call every `GET` above and nothing else.
 - Dashboard and overview numbers use the metric definitions in [panels-plan.md, section 10](panels-plan.md#10-metrics-definitions).
@@ -510,6 +526,10 @@ business-service.
 
 Invitation and reset tokens travel in the email link to a web page, which sends them in the request **body**, never in an API path.
 
+**As built (T34), `POST /auth/invitations/accept`:** public and exempt from the CSRF header (it reads no cookies, and the invitee may have no session). The invitation row is locked while it is accepted, so a token works once. An unknown, expired, revoked or used token all answer the same `400` (problem `Invalid invitation`). With no account for the email, `name` (max 120) and `password` (8 to 1,024 characters) are required, or `400` (`Account details required`) and the invitation stays pending. An existing user just gets the membership: `name` and `password` are ignored and the password is never changed; someone who is already a member keeps their role. `200` body: `slug`, `businessName`, `role`, `accountCreated`. It sets no cookies: the web app sends the user to `/login` (a logged-in user calls `/auth/refresh` to get the new business in the token). The email link is `<WEB_URL>/invitations/accept#token=<token>` (the token in the fragment, so it never reaches a server log); that web page is not built yet (T55).
+
+**Email (T34):** the `EmailSender` port (`dev.ocaina.tendwise.email`) has one method per kind of email. Until T69 its only adapter is `LogEmailSender`, which sends nothing and logs `invitation email sent to j***@domain (link: …)`: the address is masked and the link is cut before `#token=`. Only with `EMAIL_LOG_LINKS=true` (`tendwise.email.log-links`, default `false`) does it log the full link, so you can open it on your own machine; never turn it on in a shared or production environment.
+
 Details of the T31 routes (package `dev.ocaina.tendwise.auth`, Spring Security with two small filters of our own):
 
 - **Cookies.** All `SameSite=Lax` and `Secure` (`AUTH_COOKIE_SECURE=false` turns `Secure` off for plain http that is not localhost). Tokens never appear in a response body.
@@ -527,7 +547,7 @@ Details of the T31 routes (package `dev.ocaina.tendwise.auth`, Spring Security w
 - **Lockout:** the 5th consecutive failure sets `locked_until = now + 15 min` and resets `failed_login_count`, so after the lock the user has 5 new tries. The user row is locked (`SELECT … FOR UPDATE`) during a login, so parallel attempts are all counted.
 - **Refresh rotation:** the old token gets `revoked_at` and a new one (same `family_id`, 30 days from now) is stored. The row is locked during a refresh, so two refreshes with one token run in turn and the second counts as a reuse. The web app must therefore send one refresh at a time.
 - **Logout** (`204`) revokes the token's whole family and deletes the cookies; an unknown or missing refresh token still gets `204`.
-- **CSRF:** `POST`/`PUT`/`PATCH`/`DELETE` under `/auth/`, `/api/v1/panel/` and `/api/v1/admin/` (added in T32) need `X-CSRF-Token` equal to the `tendwise_csrf` cookie, or `403`. Exempt: `/auth/login` (no session yet). The `X-Api-Key` service routes need no CSRF header (no cookies).
+- **CSRF:** `POST`/`PUT`/`PATCH`/`DELETE` under `/auth/`, `/api/v1/panel/` and `/api/v1/admin/` (added in T32) need `X-CSRF-Token` equal to the `tendwise_csrf` cookie, or `403`. Exempt: `/auth/login` (no session yet) and, from T34, `/auth/invitations/accept` (it reads no cookies). The `X-Api-Key` service routes need no CSRF header (no cookies).
 - **Other routes:** the service routes are left to `ApiKeyFilter` (narrowed in T32), Swagger stays public, `/auth/me` needs a valid access token (`401` otherwise), and any route not listed in `SecurityConfig` is denied.
 
 #### Internal API (planned)
@@ -545,11 +565,11 @@ agent-service, header `X-Api-Key` with the shared service key (`BUSINESS_SERVICE
 
 ### nginx routing (planned: T42)
 
-Since T33, nginx (and the Vite dev proxy) sends `/auth/`, `/api/v1/panel/` and `/api/v1/admin/` to business-service and every other `/api/` path to agent-service, so the demo chat keeps working. From T42:
+Since T33, nginx (and the Vite dev proxy) sends `/auth/`, `/api/v1/panel/` and `/api/v1/admin/` to business-service and every other `/api/` path to agent-service, so the demo chat keeps working. Since T50, `/api/v1/panel/{slug}/documents…` goes to agent-service first (a regex location in nginx, a `^` key in Vite). From T42:
 
 | Path | Goes to |
 |---|---|
-| `/api/v1/panel/{slug}/documents…`, `/api/v1/panel/{slug}/knowledge-gaps`, `/api/v1/panel/{slug}/playground` | agent-service (checked first; each task adds its own location) |
+| `/api/v1/panel/{slug}/documents…` (since T50), `/api/v1/panel/{slug}/knowledge-gaps`, `/api/v1/panel/{slug}/playground` | agent-service (checked first; each task adds its own location) |
 | `/public/`, `/auth/`, `/api/v1/panel/`, `/api/v1/admin/` | business-service; the SSE routes with `proxy_buffering off` and a long read timeout |
 | `/api/v1/businesses`, `/api/v1/orders`, `/api/v1/handoffs`, `/internal/`, `/api/v1/chat`, agent-service's `/api/v1/admin/ingest` | Not routed: service-to-service, evals and operator tools, reachable only inside the compose network |
 | Everything else | The single-page app (`index.html`) and the widget bundle |
@@ -587,3 +607,12 @@ Why: [ADR 0004](adr/0004-realtime-and-jobs.md).
 | `ai.typing` | An `AI_REPLY` job starts | Yes | Yes |
 
 `staff.typing` and `ai.typing` are sent with `NOTIFY` only and never stored.
+
+- **As built (T40):** package `dev.ocaina.tendwise.realtime`.
+  - `EventPublisher` runs `pg_notify('events', …)` inside the transaction that stores the change; PostgreSQL delivers it only after that transaction commits and drops it on rollback. Outside a transaction (`ai.typing`) it goes out at once. `ConversationService` publishes `message.created` for every stored message, `conversation.state_changed` for every transition and `conversation.assigned` on take over and release; `HandoffService` publishes `handoff.created`; `AiReplyJobHandler` publishes `ai.typing`. `conversation.read` and `staff.typing` are sent from T44.
+  - The payload also has `internal` (message events, so the widget stream can skip internal messages) and `state` (the new state, on `conversation.state_changed`). Neither is personal data.
+  - `NotificationListener`: one thread per instance with its own JDBC connection (outside the pool, `application_name` `tendwise-event-listener`). It reconnects after `tendwise.realtime.reconnect-delay` and then sends `resync` to every open stream, because events sent while it was disconnected are lost.
+  - `EventStreams` holds the open `SseEmitter`s by business. What the browser gets: `event: <type>`, `data: {"type","conversationId","id","state"}`, and `id: <message id>` on `message.created`. Heartbeat: a `: heartbeat` comment (`tendwise.realtime.heartbeat-interval`, 25 s). A stream ends after `tendwise.realtime.stream-timeout` (30 min) and the browser reconnects. On shutdown every stream is ended, so graceful shutdown does not wait for them.
+  - `resync` event: "you may have missed events, refetch". The panel stream sends it when it reconnects with `Last-Event-ID`; the widget stream instead replays up to 100 newer non-internal `message.created` events and the current state.
+  - The widget stream checks the token (404) and the origin (403) like the history call. No cap on streams per conversation or business yet.
+  - Spring Security lets the `ASYNC` dispatch that ends a stream through, and `PanelGuard` skips it: the request was checked when it came in.

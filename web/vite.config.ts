@@ -13,6 +13,8 @@ export default defineConfig({
     // business-service prefixes come before the catch-all /api.
     proxy: {
       '/auth/': BUSINESS_SERVICE,
+      // Knowledge base routes of the panel (T50); a key starting with ^ is a regex.
+      '^/api/v1/panel/[^/]+/documents(/|$)': AGENT_SERVICE,
       '/api/v1/panel/': BUSINESS_SERVICE,
       '/api/v1/admin/': BUSINESS_SERVICE,
       '/api': AGENT_SERVICE,

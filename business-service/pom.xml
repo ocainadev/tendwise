@@ -87,10 +87,11 @@
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-database-postgresql</artifactId>
     </dependency>
+    <!-- Compile scope (not runtime): the event listener (T40) uses the driver's PGConnection API
+         to receive LISTEN/NOTIFY notifications. -->
     <dependency>
       <groupId>org.postgresql</groupId>
       <artifactId>postgresql</artifactId>
-      <scope>runtime</scope>
     </dependency>
 
     <dependency>

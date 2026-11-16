@@ -21,6 +21,22 @@ public class ApiExceptionHandler {
     return problem;
   }
 
+  @ExceptionHandler(BadRequestException.class)
+  ProblemDetail handleBadRequest(BadRequestException exception) {
+    ProblemDetail problem =
+        ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+    problem.setTitle(exception.getTitle());
+    return problem;
+  }
+
+  @ExceptionHandler(ConflictException.class)
+  ProblemDetail handleConflict(ConflictException exception) {
+    ProblemDetail problem =
+        ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+    problem.setTitle(exception.getTitle());
+    return problem;
+  }
+
   /** Someone changed the conversation's state first: 409 with the state it is in now. */
   @ExceptionHandler(ConversationConflictException.class)
   ProblemDetail handleConversationConflict(ConversationConflictException exception) {

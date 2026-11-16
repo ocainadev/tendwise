@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * Public conversation API for the website chat widget (docs/architecture.md, "Public API"). No
@@ -63,6 +65,19 @@ class PublicConversationController {
       @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
       @RequestHeader(value = HttpHeaders.ORIGIN, required = false) String origin) {
     return service.history(id, authorization, after, origin);
+  }
+
+  /**
+   * Live events of this conversation (SSE, T40). The widget reads it with fetch, because only fetch
+   * can send the Authorization header. Last-Event-ID: the newest message id it has (on reconnect).
+   */
+  @GetMapping(value = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+  SseEmitter events(
+      @PathVariable UUID id,
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+      @RequestHeader(value = HttpHeaders.ORIGIN, required = false) String origin,
+      @RequestHeader(value = "Last-Event-ID", required = false) Long lastEventId) {
+    return service.openEventStream(id, authorization, lastEventId, origin);
   }
 
   @ExceptionHandler(OriginNotAllowedException.class)

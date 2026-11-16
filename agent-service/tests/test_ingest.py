@@ -71,6 +71,7 @@ def test_migrations_create_the_tables_once(database_url: str) -> None:
         assert [row[0] for row in rows] == [
             "001_documents_chunks.sql",
             "002_conversations_turns.sql",
+            "003_knowledge_base.sql",
         ]
 
 
