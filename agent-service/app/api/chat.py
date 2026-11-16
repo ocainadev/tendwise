@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from app.agent.intent import Intent, Language
 from app.agent.service import AgentService, TurnResult
 from app.agent.staff import StaffMessage
-from app.agent.state import Source
+from app.agent.state import Channel, Source
 from app.api.rate_limit import SlidingWindowRateLimiter
 from app.gateways.business_gateway import BusinessGateway, BusinessInfo
 from app.llm.errors import LLM_ERRORS
@@ -149,10 +149,13 @@ def run_turn(
     business: BusinessInfo,
     message: str,
     staff_messages: list[StaffMessage] | None = None,
+    channel: Channel = "web",
 ) -> TurnResult:
     """Run the agent graph once; 503 when the LLM or business-service fails."""
     try:
-        return agent_service.handle_turn(conversation_id, business, message, staff_messages)
+        return agent_service.handle_turn(
+            conversation_id, business, message, staff_messages, channel=channel
+        )
     except httpx.HTTPError as error:
         # A tool (order status, handoff) could not reach business-service.
         log_error("Business service call failed", error, conversation_id)

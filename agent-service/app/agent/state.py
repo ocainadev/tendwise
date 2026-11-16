@@ -31,6 +31,9 @@ from app.rag.retriever import RetrievedChunk
 HandoffReason = Literal["COMPLAINT", "HUMAN_REQUEST", "NEGATIVE_SENTIMENT", "LOW_CONFIDENCE"]
 # The node `route` sends the turn to (one per branch of the graph).
 NextStep = Literal["retrieve", "ask_or_call_tool", "create_handoff", "answer_generic"]
+# Where the conversation happens. "playground" is the knowledge page's test chat
+# (T51): it creates no handoff and is left out of the metrics.
+Channel = Literal["web", "playground"]
 
 
 class Source(BaseModel):
@@ -47,6 +50,7 @@ class AgentState(TypedDict):
     business_name: str
     default_language: Language
     conversation_id: str
+    channel: Channel
 
     # --- persistent: survive across turns of the same conversation ---
     # Every customer message and final reply, oldest first (user, assistant, ...),
@@ -87,6 +91,7 @@ def new_turn_input(
     default_language: Language,
     conversation_id: str,
     message: str,
+    channel: Channel = "web",
 ) -> dict:
     """The input of one turn: business data, the new message, and every per-turn field reset.
 
@@ -98,6 +103,7 @@ def new_turn_input(
         "business_name": business_name,
         "default_language": default_language,
         "conversation_id": conversation_id,
+        "channel": channel,
         "message": message,
         "started_at": time.monotonic(),
         "intent": None,

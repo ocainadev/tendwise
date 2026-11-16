@@ -13,10 +13,12 @@ from pydantic import BaseModel
 from app.core.db import ConnectionFactory
 
 # Both filters are optional: a NULL parameter turns its condition off.
+# Playground chats (T51) are tests by staff, never counted.
 FILTERS = """
     FROM agent.turns t
     JOIN agent.conversations c ON c.id = t.conversation_id
-    WHERE (%(business)s::text IS NULL OR c.business_id = %(business)s::text)
+    WHERE c.channel <> 'playground'
+      AND (%(business)s::text IS NULL OR c.business_id = %(business)s::text)
       AND (%(since)s::timestamptz IS NULL OR t.created_at >= %(since)s::timestamptz)
 """
 

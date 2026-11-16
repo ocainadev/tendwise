@@ -20,7 +20,8 @@ class TurnRecord(BaseModel):
 
     conversation_id: UUID
     business_id: str  # the business slug
-    channel: Literal["web", "whatsapp"] = "web"
+    # "playground": the knowledge page's test chat (T51), left out of the report.
+    channel: Literal["web", "whatsapp", "playground"] = "web"
     language: str | None  # en | es | pt
     content: str  # the final reply, phone numbers already masked
     intent: str | None  # None when guard_input blocked the message
