@@ -10,7 +10,7 @@ import psycopg
 from fastapi import FastAPI
 
 from app.agent.service import create_agent_service
-from app.api import admin, chat, documents, health, internal, knowledge_gaps
+from app.api import admin, chat, documents, health, internal, knowledge_gaps, playground
 from app.api.rate_limit import create_rate_limiter
 from app.auth.jwks import JwksCache
 from app.core.config import Settings, get_settings
@@ -163,6 +163,7 @@ def create_app(run_startup: bool = False) -> FastAPI:
     app.include_router(internal.router)
     app.include_router(documents.router)
     app.include_router(knowledge_gaps.router)
+    app.include_router(playground.router)
     return app
 
 

@@ -29,6 +29,7 @@ def build_turn_record(state: AgentState, now: float) -> TurnRecord:
     return TurnRecord(
         conversation_id=UUID(state["conversation_id"]),
         business_id=state["business_slug"],
+        channel=state["channel"],
         language=turn_language(state),
         # Defence in depth: guard_output (T11) also masks them in the reply.
         content=mask_phone_numbers(state["reply"]),

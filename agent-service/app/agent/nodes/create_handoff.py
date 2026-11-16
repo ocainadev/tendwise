@@ -3,6 +3,9 @@
 The LLM writes a short summary for staff, the gateway opens the handoff in
 business-service, and the customer gets a fixed "a person will continue" reply
 (a fixed text: it must always be correct, so no LLM is needed for it).
+
+In the playground (T51) there is no business-service conversation to hand
+over, so the handoff is only reported in the tool call, never created.
 """
 
 from uuid import UUID
@@ -36,14 +39,14 @@ def run(state: AgentState, deps: AgentDeps) -> dict:
     )
     summary = response.text.strip()[:MAX_SUMMARY_CHARS]
 
-    handoff_id = deps.gateway.create_handoff(
-        state["business_slug"], UUID(state["conversation_id"]), reason, summary
-    )
-    tool_call = {
-        "name": "create_handoff",
-        "args": {"reason": reason},
-        "outcome": f"created handoff {handoff_id}",
-    }
+    if state["channel"] == "playground":
+        outcome = "playground: no handoff created"
+    else:
+        handoff_id = deps.gateway.create_handoff(
+            state["business_slug"], UUID(state["conversation_id"]), reason, summary
+        )
+        outcome = f"created handoff {handoff_id}"
+    tool_call = {"name": "create_handoff", "args": {"reason": reason}, "outcome": outcome}
     return {
         "reply": fixed_reply("handoff", state["intent"].language),
         "handoff": True,

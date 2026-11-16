@@ -21,14 +21,15 @@ def seed_turn(
     handoff: bool = False,
     blocked: bool = False,
     days_ago: int = 0,
+    channel: str = "web",
 ) -> None:
     with connect() as conn:
         conn.execute(
             """
-            INSERT INTO agent.conversations (id, business_id) VALUES (%s, %s)
+            INSERT INTO agent.conversations (id, business_id, channel) VALUES (%s, %s, %s)
             ON CONFLICT (id) DO NOTHING
             """,
-            (conversation_id, business_id),
+            (conversation_id, business_id, channel),
         )
         conn.execute(
             """
@@ -88,6 +89,17 @@ def test_since_keeps_only_recent_turns(seeded: ConnectionFactory) -> None:
 
     assert report.turns == 4
     assert "order_status" not in report.intent_counts
+
+
+def test_playground_turns_are_left_out(connect: ConnectionFactory) -> None:
+    seed_turn(connect, uuid4(), "joes-pizza", 100, "catalog_question")
+    seed_turn(connect, uuid4(), "joes-pizza", 9_000, "other", cost_usd="1", channel="playground")
+
+    report = build_report(connect, business="joes-pizza")
+
+    assert report.turns == 1
+    assert report.conversations == 1
+    assert report.total_cost_usd == Decimal("0.001")
 
 
 def test_no_turns_gives_an_empty_report(connect: ConnectionFactory) -> None:

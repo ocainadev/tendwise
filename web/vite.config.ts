@@ -17,6 +17,8 @@ export default defineConfig({
       '^/api/v1/panel/[^/]+/documents(/|$)': AGENT_SERVICE,
       // Unanswered questions of the panel (T58).
       '^/api/v1/panel/[^/]+/knowledge-gaps(/|$)': AGENT_SERVICE,
+      // Knowledge page test chat (T51).
+      '^/api/v1/panel/[^/]+/playground$': AGENT_SERVICE,
       '/api/v1/panel/': BUSINESS_SERVICE,
       '/api/v1/admin/': BUSINESS_SERVICE,
       '/api': AGENT_SERVICE,

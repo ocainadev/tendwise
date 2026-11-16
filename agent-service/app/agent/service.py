@@ -19,7 +19,7 @@ from app.agent.graph import build_graph
 from app.agent.intent import Intent, Language
 from app.agent.nodes.remember_turn import MAX_HISTORY_MESSAGES
 from app.agent.staff import StaffMessage
-from app.agent.state import AgentState, Source, empty_memory, new_turn_input, turn_language
+from app.agent.state import AgentState, Channel, Source, empty_memory, new_turn_input, turn_language
 from app.core.config import Settings
 from app.core.db import connection_factory
 from app.gateways.business_gateway import BusinessInfo, HttpBusinessGateway
@@ -58,19 +58,31 @@ class AgentService:
         config = {"configurable": {"thread_id": str(conversation_id)}}
         return self._graph.get_state(config).values.get("business_slug")
 
+    def conversation_channel(self, conversation_id: UUID) -> Channel | None:
+        """The channel of a stored conversation ("web" for those saved before T51), or None if new.
+
+        The playground uses it so a test chat never continues a customer conversation.
+        """
+        config = {"configurable": {"thread_id": str(conversation_id)}}
+        values = self._graph.get_state(config).values
+        if not values:
+            return None
+        return values.get("channel", "web")
+
     def handle_turn(
         self,
         conversation_id: UUID,
         business: BusinessInfo,
         message: str,
         staff_messages: list[StaffMessage] | None = None,
-        channel: str = "web",
+        channel: Channel = "web",
     ) -> TurnResult:
         """Answer one customer message of the conversation `conversation_id`.
 
         `staff_messages` are what staff told the customer since the last AI turn.
         They are added to the history before the graph runs, so every prompt of
-        this turn (and of later turns) sees them.
+        this turn (and of later turns) sees them. `channel` is "playground" for
+        the knowledge page's test chat (T51).
         """
         # The thread id tells the checkpointer which conversation's state to load and save.
         config = {"configurable": {"thread_id": str(conversation_id)}}

@@ -1,0 +1,221 @@
+/* Knowledge page (T51): document list, editor with preview, playground.
+   Plain CSS with the colour variables from index.css, like the shell. */
+
+.knowledge-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
+  align-items: start;
+}
+
+.knowledge-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.knowledge-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.knowledge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.knowledge-actions a.shell-button {
+  text-decoration: none;
+}
+
+.knowledge-muted {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.knowledge-small {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.knowledge-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.knowledge-table th,
+.knowledge-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.knowledge-table th {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.knowledge-status {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  border-radius: 999px;
+}
+
+.knowledge-status--pending {
+  color: var(--color-notice-text);
+  background: var(--color-notice-bg);
+}
+
+.knowledge-status--indexed {
+  color: #ffffff;
+  background: var(--color-primary);
+}
+
+.knowledge-status--failed {
+  color: var(--color-error-text);
+  background: var(--color-error-bg);
+}
+
+.knowledge-status-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+}
+
+.knowledge-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.knowledge-form input,
+.knowledge-form textarea {
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.knowledge-form textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+/* Markdown on the left, preview on the right; stacked on narrow screens. */
+.knowledge-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.knowledge-preview {
+  padding: 12px 16px;
+  overflow-wrap: anywhere;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.knowledge-preview__title {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.knowledge-markdown pre {
+  padding: 8px;
+  overflow-x: auto;
+  background: var(--color-bg);
+  border-radius: 6px;
+}
+
+.knowledge-danger-zone {
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.knowledge-confirm p {
+  margin: 0 0 8px;
+}
+
+.shell-button--danger {
+  background: var(--color-error-text);
+}
+
+.shell-button--danger:hover:not(:disabled) {
+  background: #7f1414;
+}
+
+.knowledge-playground {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  position: sticky;
+  top: 16px;
+}
+
+.knowledge-playground h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.knowledge-playground__messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 50vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.knowledge-playground__messages p {
+  margin: 0 0 4px;
+}
+
+.knowledge-playground__answer {
+  padding: 8px 10px;
+  background: var(--color-bg);
+  border-radius: 8px;
+}
+
+.knowledge-playground__answer ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+@media (max-width: 1000px) {
+  .knowledge-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .knowledge-playground {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .knowledge-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
