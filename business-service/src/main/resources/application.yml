@@ -87,3 +87,10 @@ tendwise:
     stale-after: 5m
     # Jobs running at the same time on one instance.
     max-concurrent: 4
+  # Transactional email (T34). Until T69 the emails are only logged (LogEmailSender).
+  email:
+    # The web app; links in emails point there (an invitation: <web-url>/invitations/accept#token=...).
+    web-url: ${WEB_URL:http://localhost:5173}
+    # true writes the full link, token included, to the log so you can open it locally.
+    # Keep it false anywhere else: the token lets anyone accept the invitation.
+    log-links: ${EMAIL_LOG_LINKS:false}
