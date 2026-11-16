@@ -22,6 +22,7 @@ import dev.ocaina.tendwise.handoff.HandoffReason;
 import dev.ocaina.tendwise.job.Job;
 import dev.ocaina.tendwise.job.JobRepository;
 import dev.ocaina.tendwise.job.JobType;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -198,10 +199,40 @@ class PublicConversationApiTest {
         .andExpect(jsonPath("$.length()").value(2))
         .andExpect(jsonPath("$[0].sender").value("SYSTEM"))
         .andExpect(jsonPath("$[0].body").value("A team member joined the conversation."))
+        .andExpect(jsonPath("$[0].event").value("TAKEN_OVER"))
+        // Who joined, so the widget can say "Maria entrou na conversa" (T42).
+        .andExpect(jsonPath("$[0].authorName").value("Maria"))
         .andExpect(jsonPath("$[0].metadata").doesNotExist())
+        .andExpect(jsonPath("$[0].userId").doesNotExist())
         .andExpect(jsonPath("$[1].sender").value("HUMAN"))
+        .andExpect(jsonPath("$[1].event").doesNotExist())
         .andExpect(jsonPath("$[1].authorName").value("Maria"))
         .andExpect(jsonPath("$[1].authorUserId").doesNotExist());
+  }
+
+  @Test
+  void historyShowsTheSourceTitlesOfAnAiReplyButNotTheirPaths() throws Exception {
+    Started started = startConversation(JOES_KEY);
+    Long businessId = businessId("joes-pizza");
+    Map<String, Object> source = new HashMap<>();
+    source.put("title", "Menu");
+    source.put("source_path", "joes-pizza/menu.md");
+    source.put("section", null);
+    conversationService.addAiMessage(
+        started.id(),
+        businessId,
+        "Yes, gluten-free costs $2 extra.",
+        Map.of("intent", "catalog_question", "language", "en", "sources", List.of(source)));
+
+    history(started.id(), started.token(), null)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].sender").value("AI"))
+        .andExpect(jsonPath("$[0].sources.length()").value(1))
+        .andExpect(jsonPath("$[0].sources[0].title").value("Menu"))
+        .andExpect(jsonPath("$[0].sources[0].source_path").doesNotExist())
+        .andExpect(jsonPath("$[0].sources[0].sourcePath").doesNotExist())
+        .andExpect(jsonPath("$[0].intent").doesNotExist())
+        .andExpect(jsonPath("$[0].event").doesNotExist());
   }
 
   @Test

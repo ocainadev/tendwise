@@ -42,27 +42,22 @@ public class HandoffService {
    * business is closed, otherwise after the business's autoAckMinutes. The panel gets
    * handoff.created (T40) after the commit.
    *
-   * <p>404 if the business does not exist. 409 (ConversationConflictException) if the conversation
-   * is not in AI.
-   *
-   * <p>Temporary rule until T42: when the conversation is not in core.conversations for this
-   * business (today's demo chat creates its conversations in agent-service only), the handoff is
-   * created as before v0.2, with no state change and no auto-ack. T42 moves the demo chat to the
-   * public API and turns this case into a 404.
+   * <p>404 if the business does not exist, or if the conversation is not in core.conversations for
+   * this business (an unknown id and another business's conversation look the same). 409
+   * (ConversationConflictException) if the conversation is not in AI.
    */
   @Transactional
   public HandoffResponse create(CreateHandoffRequest request) {
     Business business = findBusiness(request.businessSlug());
-    boolean knownConversation = conversations.exists(request.conversationId(), business.getId());
+    if (!conversations.exists(request.conversationId(), business.getId())) {
+      throw new NotFoundException(
+          "Conversation not found", "No conversation with this id in this business.");
+    }
     Handoff handoff =
         handoffs.save(
             new Handoff(
                 business.getId(), request.conversationId(), request.reason(), request.summary()));
     events.handoffCreated(business.getId(), request.conversationId(), handoff.getId());
-    if (!knownConversation) {
-      // Temporary until T42 (see above): a conversation that lives only in agent-service.
-      return HandoffResponse.from(handoff);
-    }
     // Throws when the conversation is no longer in AI: the transaction rolls back, so no handoff
     // is left behind.
     conversations.handOff(
